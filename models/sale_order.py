@@ -12,7 +12,7 @@ class SaleOrder(models.Model):
     def action_recalc_commissions(self):
         """
         Botón de emergencia/manual para generar comisiones.
-        Versión: AGRESIVA (Prioriza el Widget de Pagos y acepta asientos manuales).
+        Versión: INFALIBLE (Widget -> Conciliación Física -> Cálculo Matemático).
         """
         self.ensure_one()
         CommissionMove = self.env['commission.move']
@@ -30,68 +30,75 @@ class SaleOrder(models.Model):
             return self._return_notification("Faltan definir las Reglas de Comisión.", "danger")
 
         for inv in invoices:
-            # Si no está pagada ni en proceso, la saltamos.
             if inv.payment_state == 'not_paid':
                 continue
 
-            _logger.info(f"[COMMISSION] Analizando Factura: {inv.name} | Estado: {inv.payment_state}")
+            # LOG CLAVE: Si ves este log con 'Residual', es que el código nuevo está corriendo
+            _logger.info(f"[COMMISSION] Factura: {inv.name} | Estado: {inv.payment_state} | Residual: {inv.amount_residual}")
 
-            # Lista de pagos encontrados: [{'amount': 100.0, 'payment_id': 5 (o False), 'ref': 'Pago X'}]
             payments_found = []
 
             # ---------------------------------------------------------
-            # MÉTODO 1: Widget de Pagos (Fuente de verdad de Odoo)
+            # ESTRATEGIA 1: Widget de Pagos (Fuente de verdad visual)
             # ---------------------------------------------------------
-            # Este campo contiene el JSON que pinta la línea verde en la factura
             if inv.invoice_payments_widget:
                 try:
                     data = inv.invoice_payments_widget
-                    # En Odoo modernos es un dict, si es string lo convertimos (raro en v19)
                     content = data.get('content', []) if isinstance(data, dict) else []
-                    
                     if content:
-                        _logger.info(f"[COMMISSION] Encontrados {len(content)} pagos vía Widget JSON.")
                         for pay_info in content:
                             payments_found.append({
                                 'amount': pay_info.get('amount', 0.0),
-                                'payment_id': pay_info.get('account_payment_id', False), # Puede ser False si es asiento manual
-                                'ref': pay_info.get('ref', 'Asiento Manual/Vario')
+                                'payment_id': pay_info.get('account_payment_id', False),
+                                'ref': pay_info.get('ref', 'Vía Widget')
                             })
-                except Exception as e:
-                    _logger.error(f"[COMMISSION] Error leyendo widget: {e}")
+                        _logger.info(f"[COMMISSION] -> Datos obtenidos vía Widget.")
+                except Exception:
+                    pass
 
             # ---------------------------------------------------------
-            # MÉTODO 2: Conciliaciones (Plan B si falla el widget)
+            # ESTRATEGIA 2: Búsqueda Física (Si Widget falló)
             # ---------------------------------------------------------
             if not payments_found:
-                _logger.info("[COMMISSION] Widget vacío. Buscando conciliaciones físicas...")
-                # Buscamos en TODAS las líneas de la factura que tengan conciliaciones,
-                # no nos limitamos por tipo de cuenta, por si acaso.
-                for line in inv.line_ids:
-                    partials = line.matched_credit_ids | line.matched_debit_ids
-                    if not partials:
-                        continue
-                        
+                receivable_lines = inv.line_ids.filtered(lambda l: l.account_type == 'asset_receivable')
+                
+                # Búsqueda directa para evitar caché sucia
+                partials = self.env['account.partial.reconcile'].search([
+                    '|',
+                    ('debit_move_id', 'in', receivable_lines.ids),
+                    ('credit_move_id', 'in', receivable_lines.ids)
+                ])
+                
+                if partials:
                     for partial in partials:
-                        # Para evitar duplicados si la conciliación aparece en ambos lados
-                        # verificamos que 'line' sea la parte de la factura
-                        if partial.amount <= 0:
-                            continue
-
-                        # Intentar buscar el ID del pago si existe
-                        counterpart = partial.credit_move_id if partial.debit_move_id == line else partial.debit_move_id
-                        pay_obj = self.env['account.payment'].search([('move_id', '=', counterpart.move_id.id)], limit=1)
-                        
                         payments_found.append({
                             'amount': partial.amount,
-                            'payment_id': pay_obj.id if pay_obj else False,
-                            'ref': counterpart.move_id.name
+                            'payment_id': False, 
+                            'ref': f"Conciliación ID {partial.id}"
                         })
+                    _logger.info(f"[COMMISSION] -> Datos obtenidos vía Conciliación Física ({len(partials)} registros).")
+
+            # ---------------------------------------------------------
+            # ESTRATEGIA 3: Red de Seguridad Matemática (LA SOLUCIÓN)
+            # ---------------------------------------------------------
+            # Si Odoo dice que está pagada, y no encontramos los registros,
+            # asumimos que lo pagado es (Total - Lo que falta por pagar).
+            if not payments_found and inv.amount_total > 0:
+                paid_amount = inv.amount_total - inv.amount_residual
+                
+                # Tolerancia para errores de redondeo (0.01)
+                if paid_amount > 0.01:
+                    payments_found.append({
+                        'amount': paid_amount,
+                        'payment_id': False,
+                        'ref': 'Saldo Saldado (Cálculo Matemático)'
+                    })
+                    msg = f"Factura {inv.name}: No se hallaron registros, pero el saldo bajó. Usando cálculo matemático: {paid_amount}"
+                    _logger.warning(f"[COMMISSION] -> {msg}")
+                    debug_logs.append(msg)
 
             if not payments_found:
-                msg = f"Factura {inv.name}: Odoo dice '{inv.payment_state}' pero no hallamos el monto."
-                _logger.warning(f"[COMMISSION] {msg}")
-                debug_logs.append(msg)
+                _logger.error(f"[COMMISSION] ERROR: Imposible determinar pago para {inv.name}. Residual: {inv.amount_residual}")
                 continue
 
             # ---------------------------------------------------------
@@ -104,19 +111,14 @@ class SaleOrder(models.Model):
                 amount_paid = pay_data['amount']
                 payment_id = pay_data['payment_id']
                 
-                # Protección contra montos cero
-                if amount_paid <= 0.01: 
-                    continue
+                if amount_paid <= 0.01: continue
+                if inv.amount_total == 0: continue
 
-                if inv.amount_total == 0:
-                    continue
-
-                # Calculamos el % que representa este pago sobre el total de la factura
                 ratio = amount_paid / inv.amount_total
                 amount_paid_signed = amount_paid * sign
 
                 for rule in self.commission_rule_ids:
-                    # Candado: Buscamos si ya pagamos comisión a este partner por este monto aproximado
+                    # Candado Anti-Duplicados
                     domain = [
                         ('sale_order_id', '=', self.id),
                         ('partner_id', '=', rule.partner_id.id),
@@ -124,8 +126,6 @@ class SaleOrder(models.Model):
                         ('base_amount_paid', '<=', amount_paid_signed + 0.02),
                     ]
                     
-                    # Si tenemos ID de pago, lo usamos en el filtro. 
-                    # Si no (es asiento manual), confiamos en el monto y el partner.
                     if payment_id:
                         domain.append(('payment_id', '=', payment_id))
                     else:
@@ -133,10 +133,10 @@ class SaleOrder(models.Model):
                         
                     existing = CommissionMove.search(domain)
                     if existing:
-                        _logger.info(f"[COMMISSION] Ya existe comisión para {rule.partner_id.name} (Monto base: {amount_paid})")
+                        _logger.info(f"[COMMISSION] Ignorando duplicado para {rule.partner_id.name}")
                         continue
 
-                    # Cálculo del dinero
+                    # Cálculo
                     comm_amount = 0.0
                     if rule.calculation_base == 'manual':
                         comm_amount = rule.fixed_amount * ratio
@@ -149,7 +149,7 @@ class SaleOrder(models.Model):
                         CommissionMove.create({
                             'partner_id': rule.partner_id.id,
                             'sale_order_id': self.id,
-                            'payment_id': payment_id or False, # Guardamos False si no hay objeto payment
+                            'payment_id': payment_id or False,
                             'invoice_line_id': inv.invoice_line_ids[0].id if inv.invoice_line_ids else False,
                             'amount': comm_amount,
                             'base_amount_paid': amount_paid_signed,
@@ -161,7 +161,6 @@ class SaleOrder(models.Model):
                         created_count += 1
                         debug_logs.append(f"+ {comm_amount} ({rule.partner_id.name})")
 
-        # Retorno a interfaz
         msg_type = "success" if created_count > 0 else "info"
         final_msg = f"Proceso finalizado. {created_count} comisiones generadas."
         if debug_logs:
