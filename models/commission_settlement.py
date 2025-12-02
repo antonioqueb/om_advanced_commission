@@ -12,7 +12,9 @@ class CommissionSettlement(models.Model):
     move_ids = fields.One2many('commission.move', 'settlement_id', string='Movimientos')
     
     total_amount = fields.Monetary(compute='_compute_totals', string='Total a Pagar', store=True)
-    currency_id = fields.Many2one('res.currency', required=True)
+    
+    # CORRECCIÓN: Se añade default para evitar error NOT NULL en creación manual
+    currency_id = fields.Many2one('res.currency', required=True, default=lambda self: self.env.company.currency_id)
     
     vendor_bill_id = fields.Many2one('account.move', string='Factura Proveedor Generada')
     
@@ -32,23 +34,28 @@ class CommissionSettlement(models.Model):
         self.write({'state': 'approved'})
 
     def action_create_bill(self):
-        """ Lanza el wizard o crea la factura directamente """
         self.ensure_one()
-        product_id = int(self.env['ir.config_parameter'].sudo().get_param('om_advanced_commission.default_commission_product_id'))
-        journal_id = int(self.env['ir.config_parameter'].sudo().get_param('om_advanced_commission.default_commission_journal_id'))
-        
-        if not product_id:
-            raise models.ValidationError("Configure el Producto de Comisión en Ajustes.")
+        # Obtener parametros de sistema de manera segura
+        param_obj = self.env['ir.config_parameter'].sudo()
+        prod_id_str = param_obj.get_param('om_advanced_commission.default_commission_product_id')
+        journal_id_str = param_obj.get_param('om_advanced_commission.default_commission_journal_id')
+
+        if not prod_id_str or not journal_id_str:
+            raise models.ValidationError("Falta configuración. Ve a Ajustes > Ventas > Configuración Comisiones.")
+
+        product_id = int(prod_id_str)
+        journal_id = int(journal_id_str)
 
         invoice_vals = {
             'move_type': 'in_invoice',
             'partner_id': self.partner_id.id,
             'invoice_date': fields.Date.today(),
-            'journal_id': journal_id or False,
+            'journal_id': journal_id,
+            'currency_id': self.currency_id.id,
             'invoice_line_ids': [
                 (0, 0, {
                     'product_id': product_id,
-                    'name': f"Comisiones Ref: {self.name}",
+                    'name': f"Liquidación Comisiones Ref: {self.name}",
                     'quantity': 1,
                     'price_unit': self.total_amount,
                 })
@@ -57,8 +64,6 @@ class CommissionSettlement(models.Model):
         bill = self.env['account.move'].create(invoice_vals)
         self.vendor_bill_id = bill.id
         self.state = 'invoiced'
-        
-        # Marcar líneas como facturadas
         self.move_ids.write({'state': 'invoiced'})
         
         return {
