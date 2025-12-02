@@ -12,7 +12,7 @@ class SaleOrder(models.Model):
     def action_recalc_commissions(self):
         """
         Botón de emergencia/manual para generar comisiones.
-        Incluye extracción segura de datos de conciliación para Odoo 19.
+        Versión Directa a DB: Lee account.partial.reconcile para máxima compatibilidad.
         """
         self.ensure_one()
         CommissionMove = self.env['commission.move']
@@ -28,52 +28,51 @@ class SaleOrder(models.Model):
         if not self.commission_rule_ids:
             raise UserError("No has definido Reglas de Comisión en la pestaña 'Gestión de Comisiones'.")
 
-        # 2. Recorrer facturas y sus pagos
+        # 2. Recorrer facturas
         for inv in invoices:
             if inv.payment_state == 'not_paid':
-                logs.append(f"Factura {inv.name}: No tiene pagos.")
+                logs.append(f"Factura {inv.name}: Pendiente de pago.")
                 continue
 
-            # Obtener datos de conciliación
-            reconciled_partials = inv._get_reconciled_invoices_partials()
+            # --- ESTRATEGIA DIRECTA DB (Blindada contra cambios de Odoo 19) ---
+            # Buscamos todas las líneas de esta factura
+            # y vemos si tienen 'matched_debit_ids' o 'matched_credit_ids' (Conciliaciones)
             
-            if not reconciled_partials:
-                logs.append(f"Factura {inv.name}: Estado {inv.payment_state} pero no detecto conciliaciones.")
+            # Recolectamos todos los parciales asociados a las líneas de la factura
+            partials = self.env['account.partial.reconcile'].search([
+                '|',
+                ('debit_move_id', 'in', inv.line_ids.ids),
+                ('credit_move_id', 'in', inv.line_ids.ids)
+            ])
+
+            if not partials:
+                logs.append(f"Factura {inv.name}: Estado {inv.payment_state} pero no se hallaron registros en partial_reconcile.")
                 continue
 
-            # --- EXTRACCIÓN SEGURA DE DATOS (FIX ODOO 19) ---
-            for data in reconciled_partials:
-                partial = None
-                amount = 0.0
+            # Procesar cada conciliación encontrada
+            for partial in partials:
+                amount = partial.amount
                 counterpart_line = None
 
-                # Caso A: Es un Diccionario (Estándar Odoo moderno)
-                if isinstance(data, dict):
-                    partial = data.get('partial_id')
-                    amount = data.get('amount', 0.0)
-                    counterpart_line = data.get('counterpart_line_id')
-                
-                # Caso B: Es una Tupla/Lista con datos (Legado)
-                elif isinstance(data, (list, tuple)) and len(data) >= 3:
-                    partial = data[0]
-                    amount = data[1]
-                    counterpart_line = data[2]
-                
-                # Caso C: Dato vacío o desconocido -> Ignorar para evitar Crash
+                # Determinar cuál lado es la factura y cuál el pago
+                if partial.debit_move_id.move_id.id == inv.id:
+                    # La factura estaba en el Debe, el pago viene del Haber (Credit)
+                    counterpart_line = partial.credit_move_id
+                elif partial.credit_move_id.move_id.id == inv.id:
+                    # La factura estaba en el Haber, el pago viene del Debe (Debit)
+                    counterpart_line = partial.debit_move_id
                 else:
-                    _logger.warning(f"[COMMISSION] Formato de conciliación desconocido o vacío en {inv.name}: {data}")
+                    # Raro: El parcial apareció pero no coincide el ID de factura (Movimientos cruzados)
                     continue
 
-                # Validación final de integridad
-                if not counterpart_line:
-                    continue
-
-                # --- FIN EXTRACCIÓN ---
-
-                # counterpart_line es la linea del asiento contable del pago
+                # El movimiento contrapartida (Pago)
                 payment_move = counterpart_line.move_id
-                payment_obj = self.env['account.payment'].search([('move_id', '=', payment_move.id)], limit=1)
                 
+                # Intentar buscar el objeto payment asociado (puede ser None si es un asiento manual)
+                payment_obj = self.env['account.payment'].search([('move_id', '=', payment_move.id)], limit=1)
+
+                # --- FIN ESTRATEGIA DIRECTA ---
+
                 # Si es nota de crédito o reversión
                 is_refund = (inv.move_type == 'out_refund')
 
@@ -86,17 +85,24 @@ class SaleOrder(models.Model):
 
                 # 3. Generar Comisiones
                 for rule in self.commission_rule_ids:
-                    # Verificar duplicados
-                    existing = CommissionMove.search([
+                    # Verificar duplicados exactos
+                    # Buscamos si ya existe una comisión generada por este Pago específico
+                    # Si payment_obj no existe (asiento manual), usamos el payment_move.name para rastrear o permitimos si no hay ID.
+                    
+                    domain = [
                         ('sale_order_id', '=', self.id),
                         ('partner_id', '=', rule.partner_id.id),
-                        ('payment_id', '=', payment_obj.id if payment_obj else False),
                         ('is_refund', '=', is_refund),
-                        ('amount', '=', (rule.estimated_amount * ratio * sign)) 
-                    ])
+                        ('base_amount_paid', '=', amount * sign) # Candado por monto base
+                    ]
+                    
+                    if payment_obj:
+                        domain.append(('payment_id', '=', payment_obj.id))
+                    
+                    existing = CommissionMove.search(domain)
                     
                     if existing:
-                        logs.append(f"Omitido: Ya existe comisión para {rule.partner_id.name} sobre {payment_move.name}.")
+                        logs.append(f"Omitido: Ya procesado {rule.partner_id.name} | Pago: {amount}")
                         continue
 
                     # Cálculo del monto
@@ -134,7 +140,7 @@ class SaleOrder(models.Model):
                 'title': 'Cálculo de Comisiones',
                 'message': message,
                 'type': 'success' if created_count > 0 else 'warning',
-                'sticky': False, # Cambiado a False para que no moleste si hay muchos logs
+                'sticky': False,
             }
         }
 
