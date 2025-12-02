@@ -4,6 +4,17 @@
         <field name="model">sale.order</field>
         <field name="inherit_id" ref="sale.view_order_form"/>
         <field name="arch" type="xml">
+            
+            <!-- Botón en la cabecera (Header) -->
+            <xpath expr="//header" position="inside">
+                <button name="action_recalc_commissions" 
+                        string="Recalcular Comisiones" 
+                        type="object" 
+                        class="btn-secondary"
+                        groups="om_advanced_commission.group_commission_manager"
+                        invisible="state not in ['sale', 'done']"/>
+            </xpath>
+
             <!-- Pestaña de Configuración de Reglas -->
             <xpath expr="//notebook" position="inside">
                 <page string="Gestión de Comisiones" name="commissions_rules">
