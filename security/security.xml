@@ -1,11 +1,6 @@
 <odoo>
     <record id="group_commission_manager" model="res.groups">
         <field name="name">Administrador de Comisiones</field>
-        <!-- 
-             CORRECCIÓN ODOO 19:
-             Se eliminó la línea <field name="category_id" ref="base.module_category_sales_sales"/>
-             porque el campo category_id ya no existe o ha cambiado en esta versión de res.groups.
-        -->
         <field name="users" eval="[(4, ref('base.user_root')), (4, ref('base.user_admin'))]"/>
     </record>
 </odoo>
