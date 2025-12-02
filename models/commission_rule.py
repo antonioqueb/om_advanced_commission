@@ -28,14 +28,18 @@ class SaleCommissionRule(models.Model):
     estimated_amount = fields.Monetary(compute='_compute_estimated', string='Estimado Total')
     currency_id = fields.Many2one(related='sale_order_id.currency_id')
 
-    @api.depends('percent', 'fixed_amount', 'calculation_base', 'sale_order_id.amount_untaxed', 'sale_order_id.amount_total', 'sale_order_id.margin')
+    # CORRECCIÓN: Se eliminó 'sale_order_id.margin' del depends para evitar crash si sale_margin no está instalado
+    @api.depends('percent', 'fixed_amount', 'calculation_base', 
+                 'sale_order_id.amount_untaxed', 'sale_order_id.amount_total',
+                 'sale_order_id.order_line.price_subtotal')
     def _compute_estimated(self):
         for rule in self:
             so = rule.sale_order_id
             amount = 0.0
             
             # Filtrar líneas no comisionables
-            lines = so.order_line.filtered(lambda l: not l.no_commission)
+            # Usamos getattr para evitar errores si el campo no_commission no se ha inicializado aún
+            lines = so.order_line.filtered(lambda l: not getattr(l, 'no_commission', False))
             
             if rule.calculation_base == 'manual':
                 amount = rule.fixed_amount
@@ -46,8 +50,19 @@ class SaleCommissionRule(models.Model):
                 base = sum(lines.mapped('price_total'))
                 amount = base * (rule.percent / 100.0)
             elif rule.calculation_base == 'margin':
-                # Nota: margin en SO es global, calcularlo por líneas filtradas es más preciso
-                base = sum(lines.mapped('margin'))
+                # CORRECCIÓN: Verificación segura de existencia del campo margin
+                # Si el módulo 'sale_margin' no está instalado, base será 0.0 en lugar de dar error
+                base = 0.0
+                try:
+                    # Intentamos sumar el margen desde las líneas si el campo existe
+                    if lines and 'margin' in lines[0]._fields:
+                        base = sum(lines.mapped('margin'))
+                    # Fallback al margen de la orden si existe
+                    elif 'margin' in so._fields:
+                        base = so.margin
+                except (AttributeError, KeyError):
+                    base = 0.0
+                
                 amount = base * (rule.percent / 100.0)
             
             rule.estimated_amount = amount
