@@ -1,0 +1,30 @@
+<odoo>
+    <record id="view_order_form_commission" model="ir.ui.view">
+        <field name="name">sale.order.form.commission</field>
+        <field name="model">sale.order</field>
+        <field name="inherit_id" ref="sale.view_order_form"/>
+        <field name="arch" type="xml">
+            <!-- Pestaña de Configuración de Reglas -->
+            <xpath expr="//notebook" position="inside">
+                <page string="Gestión de Comisiones" name="commissions_rules">
+                    <field name="commission_rule_ids">
+                        <list string="Reglas de Comisión" editable="bottom">
+                            <field name="role_type"/>
+                            <field name="partner_id"/>
+                            <field name="calculation_base"/>
+                            <field name="percent" invisible="calculation_base == 'manual'"/>
+                            <field name="fixed_amount" invisible="calculation_base != 'manual'"/>
+                            <field name="estimated_amount" readonly="1" sum="Total Estimado"/>
+                            <field name="currency_id" column_invisible="1"/>
+                        </list>
+                    </field>
+                </page>
+            </xpath>
+            
+            <!-- Checkbox en Líneas para exclusión -->
+            <xpath expr="//field[@name='order_line']/list//field[@name='price_unit']" position="after">
+                <field name="no_commission" optional="hide"/>
+            </xpath>
+        </field>
+    </record>
+</odoo>

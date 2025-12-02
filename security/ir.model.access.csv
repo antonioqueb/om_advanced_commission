@@ -1,0 +1,5 @@
+id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
+access_sale_commission_rule,sale.commission.rule,model_sale_commission_rule,base.group_user,1,1,1,1
+access_commission_move,commission.move,model_commission_move,base.group_user,1,1,1,1
+access_commission_settlement,commission.settlement,model_commission_settlement,base.group_user,1,1,1,1
+access_commission_make_invoice,commission.make.invoice,model_commission_make_invoice,base.group_user,1,1,1,1

@@ -1,0 +1,23 @@
+<odoo>
+    <record id="view_commission_move_list" model="ir.ui.view">
+        <field name="name">commission.move.list</field>
+        <field name="model">commission.move</field>
+        <field name="arch" type="xml">
+            <list string="Movimientos" decoration-danger="amount &lt; 0" create="0">
+                <field name="date"/>
+                <field name="name"/>
+                <field name="partner_id"/>
+                <field name="sale_order_id"/>
+                <field name="amount" sum="Total"/>
+                <field name="currency_id" column_invisible="1"/>
+                <field name="state" widget="badge" decoration-success="state == 'invoiced'"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="action_commission_move" model="ir.actions.act_window">
+        <field name="name">Análisis de Movimientos</field>
+        <field name="res_model">commission.move</field>
+        <field name="view_mode">list,form,pivot</field>
+    </record>
+</odoo>

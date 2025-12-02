@@ -1,0 +1,27 @@
+<odoo>
+    <record id="view_commission_make_invoice" model="ir.ui.view">
+        <field name="name">commission.make.invoice.form</field>
+        <field name="model">commission.make.invoice</field>
+        <field name="arch" type="xml">
+            <form>
+                <group>
+                    <field name="date_to"/>
+                    <field name="partner_ids" widget="many2many_tags" placeholder="Dejar vacío para todos"/>
+                </group>
+                <footer>
+                    <button name="action_generate_settlements" string="Generar Liquidaciones" type="object" class="btn-primary"/>
+                    <button string="Cancelar" special="cancel" class="btn-secondary"/>
+                </footer>
+            </form>
+        </field>
+    </record>
+
+    <record id="action_commission_wizard" model="ir.actions.act_window">
+        <field name="name">Generar Liquidación Masiva</field>
+        <field name="res_model">commission.make.invoice</field>
+        <field name="target">new</field>
+        <field name="view_mode">form</field>
+    </record>
+
+    <menuitem id="menu_commission_wizard" name="Generar Liquidación Masiva" parent="menu_commission_root" action="action_commission_wizard" sequence="5"/>
+</odoo>

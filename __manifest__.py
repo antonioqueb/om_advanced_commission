@@ -1,0 +1,21 @@
+{
+    'name': 'Gestión Avanzada de Comisiones (Cash Basis & Proyectos)',
+    'version': '19.0.1.0.0',
+    'category': 'Sales/Commissions',
+    'summary': 'Motor de comisiones multi-agente basado en pagos, margenes y liquidaciones.',
+    'author': 'Custom AI Solution',
+    'depends': ['sale_management', 'account', 'purchase'],
+    'data': [
+        'security/security.xml',
+        'security/ir.model.access.csv',
+        'data/sequence_data.xml',
+        'views/res_config_settings_views.xml',
+        'views/sale_order_views.xml',
+        'views/commission_move_views.xml',
+        'views/commission_settlement_views.xml',
+        'wizard/commission_make_invoice_views.xml',
+    ],
+    'installable': True,
+    'application': True,
+    'license': 'LGPL-3',
+}
