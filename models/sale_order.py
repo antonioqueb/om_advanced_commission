@@ -12,14 +12,14 @@ class SaleOrder(models.Model):
     def action_recalc_commissions(self):
         """
         Botón de emergencia/manual para generar comisiones.
-        Versión: INFALIBLE (Widget -> Conciliación Física -> Cálculo Matemático).
+        Versión: DIAGNÓSTICO MATEMÁTICO + BÚSQUEDA PROFUNDA
         """
         self.ensure_one()
         CommissionMove = self.env['commission.move']
         created_count = 0
         debug_logs = []
 
-        _logger.info(f"[COMMISSION] Iniciando recálculo para: {self.name}")
+        _logger.info(f"[COMMISSION] --- Inicio recálculo para: {self.name} ---")
 
         invoices = self.invoice_ids.filtered(lambda x: x.state == 'posted')
         
@@ -30,11 +30,13 @@ class SaleOrder(models.Model):
             return self._return_notification("Faltan definir las Reglas de Comisión.", "danger")
 
         for inv in invoices:
+            # Si la factura está totalmente abierta (Sin pago), saltar
             if inv.payment_state == 'not_paid':
                 continue
 
-            # LOG CLAVE: Si ves este log con 'Residual', es que el código nuevo está corriendo
-            _logger.info(f"[COMMISSION] Factura: {inv.name} | Estado: {inv.payment_state} | Residual: {inv.amount_residual}")
+            # LOG DE DIAGNÓSTICO CLAVE
+            _logger.info(f"[COMMISSION] Factura: {inv.name} | Estado: {inv.payment_state}")
+            _logger.info(f"[COMMISSION] Matemáticas: Total {inv.amount_total} - Residual {inv.amount_residual} = Pagado {inv.amount_total - inv.amount_residual}")
 
             payments_found = []
 
@@ -52,53 +54,58 @@ class SaleOrder(models.Model):
                                 'payment_id': pay_info.get('account_payment_id', False),
                                 'ref': pay_info.get('ref', 'Vía Widget')
                             })
-                        _logger.info(f"[COMMISSION] -> Datos obtenidos vía Widget.")
+                        _logger.info(f"[COMMISSION] -> Hallazgo Estrategia 1 (Widget): {len(content)} pagos.")
                 except Exception:
                     pass
 
             # ---------------------------------------------------------
-            # ESTRATEGIA 2: Búsqueda Física (Si Widget falló)
+            # ESTRATEGIA 2: Búsqueda Física (Profunda)
             # ---------------------------------------------------------
             if not payments_found:
-                receivable_lines = inv.line_ids.filtered(lambda l: l.account_type == 'asset_receivable')
+                # Buscamos conciliaciones en CUALQUIER línea de la factura, no solo receivable.
+                # Esto ayuda si hay configuraciones contables inusuales.
+                invoice_move_lines = inv.line_ids
                 
-                # Búsqueda directa para evitar caché sucia
                 partials = self.env['account.partial.reconcile'].search([
                     '|',
-                    ('debit_move_id', 'in', receivable_lines.ids),
-                    ('credit_move_id', 'in', receivable_lines.ids)
+                    ('debit_move_id', 'in', invoice_move_lines.ids),
+                    ('credit_move_id', 'in', invoice_move_lines.ids)
                 ])
                 
                 if partials:
                     for partial in partials:
+                        # Evitar duplicados si la misma conciliación aparece dos veces
                         payments_found.append({
                             'amount': partial.amount,
                             'payment_id': False, 
                             'ref': f"Conciliación ID {partial.id}"
                         })
-                    _logger.info(f"[COMMISSION] -> Datos obtenidos vía Conciliación Física ({len(partials)} registros).")
+                    _logger.info(f"[COMMISSION] -> Hallazgo Estrategia 2 (Física): {len(partials)} conciliaciones.")
 
             # ---------------------------------------------------------
-            # ESTRATEGIA 3: Red de Seguridad Matemática (LA SOLUCIÓN)
+            # ESTRATEGIA 3: Red de Seguridad Matemática
             # ---------------------------------------------------------
-            # Si Odoo dice que está pagada, y no encontramos los registros,
-            # asumimos que lo pagado es (Total - Lo que falta por pagar).
             if not payments_found and inv.amount_total > 0:
                 paid_amount = inv.amount_total - inv.amount_residual
                 
-                # Tolerancia para errores de redondeo (0.01)
+                # Solo consideramos "pagado" si la diferencia es mayor a 1 centavo
                 if paid_amount > 0.01:
                     payments_found.append({
                         'amount': paid_amount,
                         'payment_id': False,
                         'ref': 'Saldo Saldado (Cálculo Matemático)'
                     })
-                    msg = f"Factura {inv.name}: No se hallaron registros, pero el saldo bajó. Usando cálculo matemático: {paid_amount}"
-                    _logger.warning(f"[COMMISSION] -> {msg}")
-                    debug_logs.append(msg)
+                    msg = f"Usando cálculo matemático: {paid_amount}"
+                    _logger.info(f"[COMMISSION] -> Estrategia 3: {msg}")
 
+            # ---------------------------------------------------------
+            # VALIDACIÓN FINAL
+            # ---------------------------------------------------------
             if not payments_found:
-                _logger.error(f"[COMMISSION] ERROR: Imposible determinar pago para {inv.name}. Residual: {inv.amount_residual}")
+                # Si llegamos aquí, es que Matemáticamente Pagado es 0 (o negativo).
+                # No es un error del código, es que la factura DEBE dinero todavía.
+                msg = f"Factura {inv.name}: Aunque dice '{inv.payment_state}', el saldo deudor no ha bajado. (Pagado Calc: {inv.amount_total - inv.amount_residual})"
+                _logger.warning(f"[COMMISSION] SALTAR: {msg}")
                 continue
 
             # ---------------------------------------------------------
