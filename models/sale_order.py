@@ -2,7 +2,6 @@ from odoo import models, fields, api
 from odoo.exceptions import UserError
 import logging
 
-# Instancia del logger para ver los mensajes en Docker
 _logger = logging.getLogger(__name__)
 
 class SaleOrder(models.Model):
@@ -13,7 +12,7 @@ class SaleOrder(models.Model):
     def action_recalc_commissions(self):
         """
         Botón de emergencia/manual para generar comisiones.
-        Versión: Acceso directo a líneas contables con LOGS DE DEPURACIÓN.
+        Versión: HÍBRIDA (Busca conciliación contable y si falla, usa el Widget JSON).
         """
         self.ensure_one()
         CommissionMove = self.env['commission.move']
@@ -22,95 +21,117 @@ class SaleOrder(models.Model):
 
         _logger.info(f"[COMMISSION-DEBUG] Iniciando recálculo para Orden: {self.name}")
 
-        # 1. Buscar facturas validadas
         invoices = self.invoice_ids.filtered(lambda x: x.state == 'posted')
         
         if not invoices:
-            msg = "Sin facturas publicadas (posted) asociadas."
-            _logger.warning(f"[COMMISSION-DEBUG] {msg}")
-            return self._return_notification(msg, "warning")
+            return self._return_notification("Sin facturas válidas.", "warning")
 
         if not self.commission_rule_ids:
-            msg = "Faltan definir las Reglas de Comisión en el pedido."
-            _logger.warning(f"[COMMISSION-DEBUG] {msg}")
-            return self._return_notification(msg, "danger")
+            return self._return_notification("Faltan definir las Reglas de Comisión.", "danger")
 
-        # 2. Recorrer facturas
         for inv in invoices:
-            _logger.info(f"[COMMISSION-DEBUG] Analizando Factura: {inv.name} | Estado Pago: {inv.payment_state}")
+            _logger.info(f"[COMMISSION-DEBUG] Procesando Factura: {inv.name} | Estado: {inv.payment_state}")
 
             if inv.payment_state == 'not_paid':
-                _logger.info(f"[COMMISSION-DEBUG] SALTADO: La factura {inv.name} no tiene pagos registrados.")
                 continue
 
-            # --- ESTRATEGIA: LEER LÍNEAS CONTABLES DIRECTAMENTE ---
-            # Filtramos líneas de tipo "Cobrar" (asset_receivable)
-            receivable_lines = inv.line_ids.filtered(lambda l: l.account_type == 'asset_receivable')
-            
-            if not receivable_lines:
-                _logger.warning(f"[COMMISSION-DEBUG] ALERTA: La factura {inv.name} no tiene líneas de tipo 'asset_receivable'. Revisa la configuración de la cuenta contable.")
-            
-            # Recolectamos conciliaciones parciales desde estas líneas
-            partials = self.env['account.partial.reconcile']
-            for line in receivable_lines:
-                # matched_credit_ids: Pagos aplicados a esta factura
-                partials |= line.matched_credit_ids
-                # matched_debit_ids: Si fuera nota de crédito
-                partials |= line.matched_debit_ids
+            # Lista donde acumularemos los pagos encontrados para esta factura
+            # Formato: {'amount': float, 'payment_id': int|False, 'date': date}
+            payments_found = []
 
-            if not partials:
-                msg = f"Factura {inv.name}: Tiene estado pagado/parcial, pero no se encontraron conciliaciones (partials) en las líneas contables."
-                _logger.info(f"[COMMISSION-DEBUG] {msg}")
+            # ---------------------------------------------------------
+            # ESTRATEGIA A: Búsqueda Estricta Contable (Partials)
+            # ---------------------------------------------------------
+            receivable_lines = inv.line_ids.filtered(lambda l: l.account_type == 'asset_receivable')
+            partials = self.env['account.partial.reconcile']
+            
+            for line in receivable_lines:
+                partials |= line.matched_credit_ids # Si es factura cliente (Debe) -> busca Haber
+                partials |= line.matched_debit_ids  # Si es nota crédito (Haber) -> busca Debe
+
+            if partials:
+                _logger.info(f"[COMMISSION-DEBUG] ESTRATEGIA A: Encontradas {len(partials)} conciliaciones contables.")
+                for partial in partials:
+                    # Determinar línea contrapartida
+                    if partial.debit_move_id in inv.line_ids:
+                        counterpart = partial.credit_move_id
+                    else:
+                        counterpart = partial.debit_move_id
+                    
+                    pay_obj = self.env['account.payment'].search([('move_id', '=', counterpart.move_id.id)], limit=1)
+                    
+                    payments_found.append({
+                        'amount': partial.amount,
+                        'payment_id': pay_obj.id if pay_obj else False,
+                        'source': 'accounting'
+                    })
+
+            # ---------------------------------------------------------
+            # ESTRATEGIA B: Fallback via Widget JSON (Si A falló)
+            # ---------------------------------------------------------
+            if not payments_found and inv.invoice_payments_widget:
+                _logger.info(f"[COMMISSION-DEBUG] ESTRATEGIA B: Usando Widget JSON (Fallback).")
+                try:
+                    # invoice_payments_widget suele ser un dict en el backend, pero prevenimos si es string
+                    widget_data = inv.invoice_payments_widget
+                    if widget_data and isinstance(widget_data, dict) and 'content' in widget_data:
+                        for payment_info in widget_data['content']:
+                            # El widget contiene: amount, date, account_payment_id, journal_name...
+                            p_id = payment_info.get('account_payment_id', False)
+                            p_amount = payment_info.get('amount', 0.0)
+                            
+                            payments_found.append({
+                                'amount': p_amount,
+                                'payment_id': p_id,
+                                'source': 'widget'
+                            })
+                except Exception as e:
+                    _logger.error(f"[COMMISSION-DEBUG] Error leyendo widget JSON: {e}")
+
+            if not payments_found:
+                msg = f"Factura {inv.name}: Pagada pero no se pudo determinar el origen del pago (ni contabilidad ni widget)."
+                _logger.warning(f"[COMMISSION-DEBUG] {msg}")
                 debug_logs.append(msg)
                 continue
 
-            # Procesar cada conciliación
-            for partial in partials:
-                amount = partial.amount
-                _logger.info(f"[COMMISSION-DEBUG] Conciliación encontrada. Monto: {amount}")
-                
-                # Identificar contrapartida (El Pago)
-                if partial.debit_move_id in inv.line_ids:
-                    counterpart_line = partial.credit_move_id
-                else:
-                    counterpart_line = partial.debit_move_id
+            # ---------------------------------------------------------
+            # GENERACIÓN DE COMISIONES
+            # ---------------------------------------------------------
+            is_refund = (inv.move_type == 'out_refund')
+            sign = -1 if is_refund else 1
 
-                payment_move = counterpart_line.move_id
-                # Buscamos el objeto pago (si existe)
-                payment_obj = self.env['account.payment'].search([('move_id', '=', payment_move.id)], limit=1)
-
-                is_refund = (inv.move_type == 'out_refund')
+            for pay_data in payments_found:
+                amount_paid = pay_data['amount']
+                payment_id = pay_data['payment_id']
                 
+                _logger.info(f"[COMMISSION-DEBUG] Procesando Pago: {amount_paid} (ID: {payment_id})")
+
                 if inv.amount_total == 0:
-                    _logger.info(f"[COMMISSION-DEBUG] Factura monto 0, saltando.")
                     continue
-                
-                ratio = amount / inv.amount_total
-                sign = -1 if is_refund else 1
-                amount_signed = amount * sign
 
-                # 3. Generar Comisiones
+                ratio = amount_paid / inv.amount_total
+                amount_paid_signed = amount_paid * sign
+
                 for rule in self.commission_rule_ids:
-                    # Candado Anti-Duplicados: 
-                    # Usamos un rango pequeño para 'base_amount_paid' para evitar errores de redondeo float
+                    # Candado Anti-Duplicados (Range Float Match)
                     domain = [
                         ('sale_order_id', '=', self.id),
                         ('partner_id', '=', rule.partner_id.id),
-                        ('base_amount_paid', '>=', amount_signed - 0.02),
-                        ('base_amount_paid', '<=', amount_signed + 0.02),
+                        ('base_amount_paid', '>=', amount_paid_signed - 0.02),
+                        ('base_amount_paid', '<=', amount_paid_signed + 0.02),
                     ]
                     
-                    if payment_obj:
-                        domain.append(('payment_id', '=', payment_obj.id))
+                    if payment_id:
+                        domain.append(('payment_id', '=', payment_id))
                     else:
                         domain.append(('payment_id', '=', False))
                         
                     existing = CommissionMove.search(domain)
                     if existing:
-                        _logger.info(f"[COMMISSION-DEBUG] IGNORADO: Ya existe comisión para {rule.partner_id.name} sobre este pago.")
+                        _logger.info(f"[COMMISSION-DEBUG] Ignorado: Duplicado para {rule.partner_id.name}")
                         continue
 
-                    # Calcular Monto
+                    # Cálculo
                     comm_amount = 0.0
                     if rule.calculation_base == 'manual':
                         comm_amount = rule.fixed_amount * ratio
@@ -119,33 +140,29 @@ class SaleOrder(models.Model):
                     
                     comm_amount *= sign
 
-                    if abs(comm_amount) > 0.01: # Ignorar centavos residuales
+                    if abs(comm_amount) > 0.01:
                         CommissionMove.create({
                             'partner_id': rule.partner_id.id,
                             'sale_order_id': self.id,
-                            'payment_id': payment_obj.id if payment_obj else False,
+                            'payment_id': payment_id or False,
                             'invoice_line_id': inv.invoice_line_ids[0].id if inv.invoice_line_ids else False,
                             'amount': comm_amount,
-                            'base_amount_paid': amount_signed,
+                            'base_amount_paid': amount_paid_signed,
                             'currency_id': self.currency_id.id,
                             'is_refund': is_refund,
                             'state': 'draft',
                             'name': f"Cmsn: {inv.name}"
                         })
                         created_count += 1
-                        msg_success = f"Generada: {comm_amount} ({rule.partner_id.name})"
-                        _logger.info(f"[COMMISSION-DEBUG] {msg_success}")
-                        debug_logs.append(msg_success)
+                        debug_logs.append(f"+ {comm_amount} ({rule.partner_id.name})")
 
-        # Mensaje final al usuario
+        # Notificación Final
+        msg_type = "success" if created_count > 0 else "warning"
         final_msg = f"Proceso finalizado. {created_count} comisiones generadas."
         if debug_logs:
-             final_msg += "\nDetalles:\n" + "\n".join(debug_logs)
+             final_msg += "\n" + "\n".join(debug_logs)
 
-        return self._return_notification(
-            final_msg, 
-            "success" if created_count > 0 else "info"
-        )
+        return self._return_notification(final_msg, msg_type)
 
     def _return_notification(self, message, type='info'):
         return {
