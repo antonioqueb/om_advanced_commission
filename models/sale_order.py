@@ -17,7 +17,6 @@ class SaleOrder(models.Model):
         logs = []
 
         # 1. Buscar facturas asociadas (Publicadas)
-        # Usamos invoice_ids que es nativo de sale.order
         invoices = self.invoice_ids.filtered(lambda x: x.state == 'posted')
         
         if not invoices:
@@ -28,23 +27,30 @@ class SaleOrder(models.Model):
 
         # 2. Recorrer facturas y sus pagos
         for inv in invoices:
-            # Obtener widgets de pago o conciliaciones
-            # En Odoo moderno, miramos los pagos asociados al move
-            # payment_state: 'paid', 'in_payment', 'partial'
             if inv.payment_state == 'not_paid':
                 logs.append(f"Factura {inv.name}: No tiene pagos.")
                 continue
 
-            # Truco para obtener los pagos conciliados de manera robusta
+            # Obtener conciliaciones (pagos)
             reconciled_partials = inv._get_reconciled_invoices_partials()
             
             if not reconciled_partials:
                 logs.append(f"Factura {inv.name}: Estado {inv.payment_state} pero no detecto conciliaciones.")
                 continue
 
-            for partial, amount, counterpart_line in reconciled_partials:
-                # partial es el objeto 'account.partial.reconcile'
-                # counterpart_line es la linea del pago
+            # CORRECCIÓN AQUÍ: Iterar de forma segura (Diccionario o Tupla)
+            for data in reconciled_partials:
+                
+                # Soporte para Odoo 16/17/18/19 (Devuelve diccionarios)
+                if isinstance(data, dict):
+                    partial = data.get('partial_id')
+                    amount = data.get('amount')
+                    counterpart_line = data.get('counterpart_line_id')
+                # Soporte legado (Devuelve tuplas)
+                else:
+                    partial, amount, counterpart_line = data
+
+                # counterpart_line es la linea del asiento contable del pago
                 payment_move = counterpart_line.move_id
                 payment_obj = self.env['account.payment'].search([('move_id', '=', payment_move.id)], limit=1)
                 
@@ -66,7 +72,6 @@ class SaleOrder(models.Model):
                         ('partner_id', '=', rule.partner_id.id),
                         ('payment_id', '=', payment_obj.id if payment_obj else False),
                         ('is_refund', '=', is_refund),
-                        # Una validación extra para evitar duplicados por decimales
                         ('amount', '=', (rule.estimated_amount * ratio * sign)) 
                     ])
                     
@@ -102,7 +107,6 @@ class SaleOrder(models.Model):
         # Resultado
         message = f"Proceso finalizado.\nComisiones generadas: {created_count}\n\nDetalle:\n" + "\n".join(logs)
         
-        # Lanzar aviso en pantalla (no es error, es informativo, pero usamos UserError para que salga el popup o un return action)
         return {
             'type': 'ir.actions.client',
             'tag': 'display_notification',
