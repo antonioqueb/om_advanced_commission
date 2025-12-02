@@ -14,6 +14,8 @@
         'views/commission_move_views.xml',
         'views/commission_settlement_views.xml',
         'wizard/commission_make_invoice_views.xml',
+        'wizard/commission_report_wizard_views.xml',
+        'report/commission_report_template.xml',
     ],
     'installable': True,
     'application': True,

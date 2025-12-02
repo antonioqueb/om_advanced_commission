@@ -1,0 +1,37 @@
+<odoo>
+    <record id="view_commission_report_wizard_form" model="ir.ui.view">
+        <field name="name">commission.report.wizard.form</field>
+        <field name="model">commission.report.wizard</field>
+        <field name="arch" type="xml">
+            <form string="Reporte de Comisiones">
+                <group>
+                    <group>
+                        <field name="date_from"/>
+                        <field name="date_to"/>
+                    </group>
+                    <group>
+                        <field name="partner_ids" widget="many2many_tags" placeholder="Todos los vendedores..."/>
+                    </group>
+                </group>
+                <footer>
+                    <button name="action_print_report" string="Imprimir PDF" type="object" class="btn-primary" icon="fa-print"/>
+                    <button string="Cancelar" special="cancel" class="btn-secondary"/>
+                </footer>
+            </form>
+        </field>
+    </record>
+
+    <record id="action_commission_report_wizard" model="ir.actions.act_window">
+        <field name="name">Reporte PDF de Comisiones</field>
+        <field name="res_model">commission.report.wizard</field>
+        <field name="view_mode">form</field>
+        <field name="target">new</field>
+    </record>
+
+    <!-- Agregar al menú -->
+    <menuitem id="menu_commission_report" 
+              name="Reporte PDF" 
+              parent="menu_commission_root" 
+              action="action_commission_report_wizard" 
+              sequence="30"/>
+</odoo>
