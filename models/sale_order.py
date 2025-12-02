@@ -1,5 +1,8 @@
 from odoo import models, fields, api
 from odoo.exceptions import UserError
+import logging
+
+_logger = logging.getLogger(__name__)
 
 class SaleOrder(models.Model):
     _inherit = 'sale.order'
@@ -8,8 +11,8 @@ class SaleOrder(models.Model):
 
     def action_recalc_commissions(self):
         """
-        Botón de emergencia/manual para generar comisiones
-        basado en los pagos ya registrados en las facturas de este pedido.
+        Botón de emergencia/manual para generar comisiones.
+        Incluye extracción segura de datos de conciliación para Odoo 19.
         """
         self.ensure_one()
         CommissionMove = self.env['commission.move']
@@ -31,24 +34,41 @@ class SaleOrder(models.Model):
                 logs.append(f"Factura {inv.name}: No tiene pagos.")
                 continue
 
-            # Obtener conciliaciones (pagos)
+            # Obtener datos de conciliación
             reconciled_partials = inv._get_reconciled_invoices_partials()
             
             if not reconciled_partials:
                 logs.append(f"Factura {inv.name}: Estado {inv.payment_state} pero no detecto conciliaciones.")
                 continue
 
-            # CORRECCIÓN AQUÍ: Iterar de forma segura (Diccionario o Tupla)
+            # --- EXTRACCIÓN SEGURA DE DATOS (FIX ODOO 19) ---
             for data in reconciled_partials:
-                
-                # Soporte para Odoo 16/17/18/19 (Devuelve diccionarios)
+                partial = None
+                amount = 0.0
+                counterpart_line = None
+
+                # Caso A: Es un Diccionario (Estándar Odoo moderno)
                 if isinstance(data, dict):
                     partial = data.get('partial_id')
-                    amount = data.get('amount')
+                    amount = data.get('amount', 0.0)
                     counterpart_line = data.get('counterpart_line_id')
-                # Soporte legado (Devuelve tuplas)
+                
+                # Caso B: Es una Tupla/Lista con datos (Legado)
+                elif isinstance(data, (list, tuple)) and len(data) >= 3:
+                    partial = data[0]
+                    amount = data[1]
+                    counterpart_line = data[2]
+                
+                # Caso C: Dato vacío o desconocido -> Ignorar para evitar Crash
                 else:
-                    partial, amount, counterpart_line = data
+                    _logger.warning(f"[COMMISSION] Formato de conciliación desconocido o vacío en {inv.name}: {data}")
+                    continue
+
+                # Validación final de integridad
+                if not counterpart_line:
+                    continue
+
+                # --- FIN EXTRACCIÓN ---
 
                 # counterpart_line es la linea del asiento contable del pago
                 payment_move = counterpart_line.move_id
@@ -66,7 +86,7 @@ class SaleOrder(models.Model):
 
                 # 3. Generar Comisiones
                 for rule in self.commission_rule_ids:
-                    # Verificar si ya existe comisión para este pago y regla
+                    # Verificar duplicados
                     existing = CommissionMove.search([
                         ('sale_order_id', '=', self.id),
                         ('partner_id', '=', rule.partner_id.id),
@@ -76,10 +96,10 @@ class SaleOrder(models.Model):
                     ])
                     
                     if existing:
-                        logs.append(f"Omitido: Ya existe comisión para {rule.partner_id.name} sobre el pago {payment_move.name}.")
+                        logs.append(f"Omitido: Ya existe comisión para {rule.partner_id.name} sobre {payment_move.name}.")
                         continue
 
-                    # Cálculo
+                    # Cálculo del monto
                     comm_amount = 0.0
                     if rule.calculation_base == 'manual':
                         comm_amount = rule.fixed_amount * ratio
@@ -102,7 +122,7 @@ class SaleOrder(models.Model):
                             'name': f"Manual: {inv.name} ({round(ratio*100, 1)}%)"
                         })
                         created_count += 1
-                        logs.append(f"CREADO: {comm_amount} para {rule.partner_id.name} (Pago: {payment_move.name})")
+                        logs.append(f"CREADO: {comm_amount} para {rule.partner_id.name}")
 
         # Resultado
         message = f"Proceso finalizado.\nComisiones generadas: {created_count}\n\nDetalle:\n" + "\n".join(logs)
@@ -114,7 +134,7 @@ class SaleOrder(models.Model):
                 'title': 'Cálculo de Comisiones',
                 'message': message,
                 'type': 'success' if created_count > 0 else 'warning',
-                'sticky': True,
+                'sticky': False, # Cambiado a False para que no moleste si hay muchos logs
             }
         }
 
