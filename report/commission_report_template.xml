@@ -9,130 +9,120 @@
         <field name="print_report_name">'Comisiones %s - %s' % (object.date_from, object.date_to)</field>
         <field name="binding_model_id" ref="model_commission_report_wizard"/>
         <field name="binding_type">report</field>
-        <!-- Formato horizontal (Landscape) recomendado por la cantidad de columnas -->
         <field name="paperformat_id" ref="base.paperformat_euro"/> 
     </record>
 
-    <!-- 2. Plantilla QWeb -->
+    <!-- 2. Plantilla QWeb Estilizada -->
     <template id="report_commission_document">
         <t t-call="web.html_container">
             <t t-call="web.external_layout">
-                <div class="page" style="font-size: 11px;"> <!-- Reducimos fuente para que quepa todo -->
-                    <div class="text-center mb-4">
-                        <h3>Reporte de Comisiones</h3>
-                        <p>
-                            <strong>Periodo:</strong> <span t-esc="data['date_from']" t-options='{"widget": "date"}'/>
-                            al <span t-esc="data['date_to']" t-options='{"widget": "date"}'/>
-                        </p>
+                <div class="page" style="font-family: 'Helvetica', Arial, sans-serif; font-size: 11px; color: #333;">
+                    
+                    <!-- ENCABEZADO MODERNO -->
+                    <div class="row mb-5">
+                        <div class="col-12 text-center">
+                            <h2 style="font-weight: 900; text-transform: uppercase; letter-spacing: 1px; color: #000; margin-bottom: 5px;">
+                                Reporte de Comisiones
+                            </h2>
+                            <div style="border-bottom: 3px solid #000; width: 60px; margin: 0 auto 15px auto;"></div>
+                            <p style="font-size: 13px; color: #666;">
+                                <strong>Periodo:</strong> 
+                                <span t-esc="data['date_from']" t-options='{"widget": "date"}' class="ml-1 mr-1"/>
+                                <i class="fa fa-long-arrow-right mx-1"/>
+                                <span t-esc="data['date_to']" t-options='{"widget": "date"}' class="ml-1"/>
+                            </p>
+                        </div>
                     </div>
 
                     <!-- Iterar sobre cada Vendedor -->
                     <t t-foreach="docs" t-as="group">
-                        <div class="mt-3 mb-2 p-1 bg-light border-bottom">
-                            <strong class="text-primary" style="font-size: 14px;">
-                                Vendedor: <span t-field="group['partner'].name"/>
-                            </strong>
+                        
+                        <!-- SEPARADOR DE VENDEDOR ESTILO CLEAN -->
+                        <div class="mt-4 mb-3" style="border-left: 6px solid #000; padding-left: 10px; background-color: #f8f9fa; padding-top:8px; padding-bottom:8px;">
+                            <span style="font-size: 15px; font-weight: bold; color: #212529; text-transform: uppercase;">
+                                <i class="fa fa-user-circle-o mr-2" style="opacity: 0.6;"></i>
+                                <span t-field="group['partner'].name"/>
+                            </span>
                         </div>
 
-                        <table class="table table-sm table-striped table-bordered">
-                            <thead class="thead-light">
-                                <tr>
-                                    <!-- 1. # de Folio (Sale Order) -->
-                                    <th class="text-center" style="width: 10%;"># Folio</th>
-                                    
-                                    <!-- 2. Fecha Emisión Factura -->
-                                    <th class="text-center" style="width: 10%;">Fecha Fac.</th>
-                                    
-                                    <!-- 3. Razón Social (Cliente) -->
-                                    <th style="width: 15%;">Razón Social</th>
-                                    
-                                    <!-- 4. Job Name (Proyecto) -->
-                                    <th style="width: 12%;">Job Name</th>
-                                    
-                                    <!-- 5. Fecha de Pago -->
-                                    <th class="text-center" style="width: 10%;">Fecha Pago</th>
-                                    
-                                    <!-- 6. Factura (Folio) -->
-                                    <th class="text-center" style="width: 10%;">Factura</th>
-                                    
-                                    <!-- 7. Monto Total Factura (Base Pagada) -->
-                                    <th class="text-right" style="width: 12%;">Monto Cobrado<br/>(Base)</th>
-                                    
-                                    <!-- 8. % sobre la factura -->
-                                    <th class="text-center" style="width: 8%;">%</th>
-                                    
-                                    <!-- 9. Monto a comisionar -->
-                                    <th class="text-right" style="width: 13%;">A Comisionar</th>
+                        <!-- TABLA MODERNA -->
+                        <table class="table table-sm table-borderless" style="margin-bottom: 30px;">
+                            <!-- CABECERA NEGRA, TEXTO BLANCO -->
+                            <thead style="background-color: #1a1a1a; color: #ffffff;">
+                                <tr style="border-bottom: 2px solid #000;">
+                                    <th class="text-center align-middle" style="width: 9%; padding: 8px; font-weight: 600;">FOLIO</th>
+                                    <th class="text-center align-middle" style="width: 9%; padding: 8px; font-weight: 600;">FECHA FAC.</th>
+                                    <th class="align-middle" style="width: 16%; padding: 8px; font-weight: 600;">CLIENTE</th>
+                                    <th class="align-middle" style="width: 13%; padding: 8px; font-weight: 600;">PROYECTO</th>
+                                    <th class="text-center align-middle" style="width: 9%; padding: 8px; font-weight: 600;">F. PAGO</th>
+                                    <th class="text-center align-middle" style="width: 9%; padding: 8px; font-weight: 600;">FACTURA</th>
+                                    <th class="text-right align-middle" style="width: 12%; padding: 8px; font-weight: 600;">BASE ($)</th>
+                                    <th class="text-center align-middle" style="width: 8%; padding: 8px; font-weight: 600;">%</th>
+                                    <th class="text-right align-middle" style="width: 15%; padding: 8px; font-weight: 600;">COMISIÓN ($)</th>
                                 </tr>
                             </thead>
+                            
+                            <!-- CUERPO CON BORDES HORIZONTALES SUTILES -->
                             <tbody>
-                                <tr t-foreach="group['moves']" t-as="move">
-                                    <!-- 1. Origen Venta -->
-                                    <td class="text-center">
-                                        <span t-field="move.sale_order_id.name"/>
+                                <tr t-foreach="group['moves']" t-as="move" style="border-bottom: 1px solid #e9ecef;">
+                                    <td class="text-center align-middle py-2">
+                                        <span t-field="move.sale_order_id.name" style="font-weight: 500;"/>
                                     </td>
-
-                                    <!-- 2. Fecha Factura -->
-                                    <td class="text-center">
-                                        <!-- Accedemos a través de la línea de factura -> movimiento -> fecha -->
+                                    <td class="text-center align-middle text-muted">
                                         <span t-if="move.invoice_line_id" t-field="move.invoice_line_id.move_id.invoice_date"/>
                                         <span t-else="">-</span>
                                     </td>
-
-                                    <!-- 3. Cliente -->
-                                    <td>
+                                    <td class="align-middle">
                                         <span t-field="move.sale_order_id.partner_id.name" 
-                                              style="display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 150px;"/>
+                                              style="display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 160px; font-weight: 500;"/>
                                     </td>
-
-                                    <!-- 4. Job Name (x_project_id) -->
-                                    <td>
+                                    <td class="align-middle text-muted">
                                         <span t-if="move.sale_order_id.x_project_id" t-field="move.sale_order_id.x_project_id.name"/>
-                                        <span t-else="" class="text-muted">-</span>
+                                        <span t-else="">-</span>
                                     </td>
-
-                                    <!-- 5. Fecha Pago (Preferencia: Fecha del pago real, sino fecha del movimiento de comisión) -->
-                                    <td class="text-center">
+                                    <td class="text-center align-middle">
                                         <span t-if="move.payment_id" t-field="move.payment_id.date"/>
                                         <span t-else="" t-field="move.date"/>
                                     </td>
-
-                                    <!-- 6. Folio Factura -->
-                                    <td class="text-center">
-                                        <span t-if="move.invoice_line_id" t-field="move.invoice_line_id.move_id.name"/>
-                                        <span t-else="">(Varios/Manual)</span>
+                                    <td class="text-center align-middle">
+                                        <span class="badge badge-light border" style="font-size: 10px;">
+                                            <t t-if="move.invoice_line_id">
+                                                <span t-field="move.invoice_line_id.move_id.name"/>
+                                            </t>
+                                            <t t-else="">Varios</t>
+                                        </span>
                                     </td>
-
-                                    <!-- 7. Monto Total (Base Cobrada) -->
-                                    <td class="text-right">
+                                    <td class="text-right align-middle">
                                         <span t-field="move.base_amount_paid" 
                                               t-options='{"widget": "monetary", "display_currency": move.currency_id}'/>
                                     </td>
-
-                                    <!-- 8. % Calc -->
-                                    <td class="text-center">
-                                        <t t-if="move.base_amount_paid and move.base_amount_paid != 0">
-                                            <span t-esc="abs(round((move.amount / move.base_amount_paid) * 100, 2))"/>%
-                                        </t>
-                                        <t t-else="">Fixed</t>
+                                    <td class="text-center align-middle">
+                                        <span class="badge badge-dark" style="background-color: #333; color: white;">
+                                            <t t-if="move.base_amount_paid and move.base_amount_paid != 0">
+                                                <span t-esc="abs(round((move.amount / move.base_amount_paid) * 100, 2))"/>%
+                                            </t>
+                                            <t t-else="">Fijo</t>
+                                        </span>
                                     </td>
-
-                                    <!-- 9. Comisión -->
-                                    <td class="text-right font-weight-bold">
+                                    <td class="text-right align-middle" style="font-weight: bold; color: #000;">
                                         <span t-field="move.amount" 
                                               t-options='{"widget": "monetary", "display_currency": move.currency_id}'/>
                                     </td>
                                 </tr>
                             </tbody>
+
+                            <!-- PIE DE TOTALES CON ESTILO "INVOICE TOTAL" -->
                             <tfoot>
-                                <tr class="bg-white border-top font-weight-bold">
-                                    <td colspan="6" class="text-right text-uppercase">Totales:</td>
-                                    <td class="text-right">
+                                <tr style="background-color: #f0f0f0;">
+                                    <td colspan="6" class="text-right align-middle text-uppercase" style="padding: 10px; font-weight: bold; color: #555;">
+                                        Totales <span t-field="group['partner'].name"/>:
+                                    </td>
+                                    <td class="text-right align-middle" style="padding: 10px; font-weight: bold;">
                                         <span t-esc="group['total_base']" 
                                               t-options='{"widget": "monetary", "display_currency": group["partner"].currency_id}'/>
                                     </td>
-                                    <td></td>
-                                    <td class="text-right text-success">
+                                    <td class="align-middle"></td>
+                                    <td class="text-right align-middle" style="padding: 10px; background-color: #1a1a1a; color: #fff; font-size: 12px; font-weight: bold;">
                                         <span t-esc="group['total_commission']" 
                                               t-options='{"widget": "monetary", "display_currency": group["partner"].currency_id}'/>
                                     </td>
@@ -141,8 +131,9 @@
                         </table>
                     </t>
 
-                    <div t-if="not docs" class="alert alert-warning mt-4 text-center">
-                        No hay registros de comisiones para este rango de fechas.
+                    <div t-if="not docs" class="alert alert-secondary mt-5 text-center p-5 shadow-sm">
+                        <h4 class="alert-heading">Sin Información</h4>
+                        <p>No se encontraron comisiones aprobadas o pendientes para este rango de fechas.</p>
                     </div>
                 </div>
             </t>
