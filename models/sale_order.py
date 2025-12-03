@@ -8,11 +8,14 @@ class SaleOrder(models.Model):
     _inherit = 'sale.order'
 
     commission_rule_ids = fields.One2many('sale.commission.rule', 'sale_order_id', string='Reglas de Comisión')
+    
+    # Nuevo campo requerido para el reporte (Job Name)
+    x_project_id = fields.Many2one('project.project', string='Proyecto (Job Name)')
 
     def action_recalc_commissions(self):
         """
         Botón de emergencia/manual para generar comisiones.
-        Versión: FORZADO (Si dice 'in_payment', se paga aunque el residual diga lo contrario).
+        Versión: CORREGIDA (Calcula proporción sobre la Venta Original, no sobre la Factura).
         """
         self.ensure_one()
         CommissionMove = self.env['commission.move']
@@ -29,123 +32,117 @@ class SaleOrder(models.Model):
         if not self.commission_rule_ids:
             return self._return_notification("Faltan definir las Reglas de Comisión.", "danger")
 
+        # Limpiar comisiones previas en borrador para evitar duplicados sucios (Opcional)
+        # self.env['commission.move'].search([('sale_order_id', '=', self.id), ('state', '=', 'draft')]).unlink()
+
         for inv in invoices:
             if inv.payment_state == 'not_paid':
                 continue
-
-            _logger.info(f"[COMMISSION] Factura: {inv.name} | Estado: {inv.payment_state}")
             
+            # ---------------------------------------------------------
+            # ESTRATEGIA DE BÚSQUEDA DE PAGOS
+            # ---------------------------------------------------------
             payments_found = []
-
-            # ---------------------------------------------------------
-            # ESTRATEGIA 1: Widget de Pagos
-            # ---------------------------------------------------------
+            
+            # 1. Widget de Pagos (JSON)
             if inv.invoice_payments_widget:
                 try:
                     data = inv.invoice_payments_widget
                     content = data.get('content', []) if isinstance(data, dict) else []
-                    if content:
-                        for pay_info in content:
-                            payments_found.append({
-                                'amount': pay_info.get('amount', 0.0),
-                                'payment_id': pay_info.get('account_payment_id', False),
-                                'ref': pay_info.get('ref', 'Vía Widget')
-                            })
-                        _logger.info(f"[COMMISSION] -> Hallazgo Estrategia 1 (Widget): {len(content)} pagos.")
-                except Exception:
+                    for pay_info in content:
+                        payments_found.append({
+                            'amount': pay_info.get('amount', 0.0),
+                            'payment_id': pay_info.get('account_payment_id', False),
+                            'ref': pay_info.get('ref', 'Vía Widget')
+                        })
+                except Exception: 
                     pass
 
-            # ---------------------------------------------------------
-            # ESTRATEGIA 2: Búsqueda Física
-            # ---------------------------------------------------------
+            # 2. Búsqueda Física (Conciliaciones Parciales)
             if not payments_found:
                 invoice_move_lines = inv.line_ids
                 partials = self.env['account.partial.reconcile'].search([
-                    '|',
-                    ('debit_move_id', 'in', invoice_move_lines.ids),
+                    '|', ('debit_move_id', 'in', invoice_move_lines.ids),
                     ('credit_move_id', 'in', invoice_move_lines.ids)
                 ])
-                if partials:
-                    for partial in partials:
-                        payments_found.append({
-                            'amount': partial.amount,
-                            'payment_id': False, 
-                            'ref': f"Conciliación ID {partial.id}"
-                        })
+                for partial in partials:
+                    payments_found.append({
+                        'amount': partial.amount, 
+                        'payment_id': False, 
+                        'ref': f"Conciliación {partial.id}"
+                    })
 
-            # ---------------------------------------------------------
-            # ESTRATEGIA 3: Red de Seguridad Matemática
-            # ---------------------------------------------------------
+            # 3. Matemático / Forzado (Red de seguridad)
             if not payments_found and inv.amount_total > 0:
                 paid_amount = inv.amount_total - inv.amount_residual
                 if paid_amount > 0.01:
                     payments_found.append({
-                        'amount': paid_amount,
-                        'payment_id': False,
-                        'ref': 'Saldo Saldado (Cálculo Matemático)'
+                        'amount': paid_amount, 
+                        'payment_id': False, 
+                        'ref': 'Saldo Calculado'
+                    })
+                elif inv.payment_state in ['in_payment', 'paid']:
+                    payments_found.append({
+                        'amount': inv.amount_total, 
+                        'payment_id': False, 
+                        'ref': 'Forzado Estado Visual'
                     })
 
-            # ---------------------------------------------------------
-            # ESTRATEGIA 4: MODO FORZADO (La solución a tu problema)
-            # ---------------------------------------------------------
-            # Si llegamos aquí vacíos, pero el estado es 'in_payment' o 'paid',
-            # asumimos que es un error de Odoo actualizando el residual y forzamos el total.
-            if not payments_found and inv.payment_state in ['in_payment', 'paid']:
-                msg = f"Factura {inv.name}: Residual no bajó, pero estado es '{inv.payment_state}'. FORZANDO PAGO TOTAL."
-                _logger.warning(f"[COMMISSION] -> {msg}")
-                debug_logs.append(msg)
-                
-                payments_found.append({
-                    'amount': inv.amount_total,
-                    'payment_id': False,
-                    'ref': 'Forzado por Estado Visual'
-                })
-
             if not payments_found:
-                _logger.warning(f"[COMMISSION] SALTAR: {inv.name} no parece tener pagos procesables.")
                 continue
 
             # ---------------------------------------------------------
-            # GENERACIÓN
+            # CÁLCULO Y GENERACIÓN
             # ---------------------------------------------------------
             is_refund = (inv.move_type == 'out_refund')
             sign = -1 if is_refund else 1
 
+            # Calcular cuánto de esta factura pertenece realmente a ESTA venta
+            # (Útil para facturas agrupadas o anticipos)
+            relevant_lines = inv.invoice_line_ids.filtered(lambda l: self.id in l.sale_line_ids.order_id.ids)
+            so_inv_total = sum(relevant_lines.mapped('price_total')) if relevant_lines else inv.amount_total
+
             for pay_data in payments_found:
-                amount_paid = pay_data['amount']
+                amount_paid_on_invoice = pay_data['amount']
                 payment_id = pay_data['payment_id']
                 
-                if amount_paid <= 0.01: continue
-                if inv.amount_total == 0: continue
+                # Validaciones básicas
+                if amount_paid_on_invoice <= 0.01 or inv.amount_total == 0 or self.amount_total == 0: 
+                    continue
 
-                ratio = amount_paid / inv.amount_total
-                amount_paid_signed = amount_paid * sign
+                # --- LÓGICA MATEMÁTICA CORREGIDA ---
+                # 1. ¿Qué porcentaje de la factura cubrió este pago? (Ej. Factura de 800, Pago de 800 = 100%)
+                invoice_payment_ratio = amount_paid_on_invoice / inv.amount_total
+                
+                # 2. ¿Cuánto dinero de la VENTA representa eso? (Ej. 800 * 100% = 800)
+                paid_amount_so_real = so_inv_total * invoice_payment_ratio
+                
+                # 3. ¿Qué porcentaje de la VENTA TOTAL es eso? (Ej. 800 / 10,000 = 0.08)
+                final_ratio = paid_amount_so_real / self.amount_total
+                
+                amount_paid_signed = paid_amount_so_real * sign
 
                 for rule in self.commission_rule_ids:
-                    # Candado Anti-Duplicados
+                    # Candado Anti-Duplicados (Usando la base calculada real)
                     domain = [
                         ('sale_order_id', '=', self.id),
                         ('partner_id', '=', rule.partner_id.id),
-                        ('base_amount_paid', '>=', amount_paid_signed - 0.02),
-                        ('base_amount_paid', '<=', amount_paid_signed + 0.02),
+                        ('base_amount_paid', '>=', amount_paid_signed - 0.1),
+                        ('base_amount_paid', '<=', amount_paid_signed + 0.1),
                     ]
-                    
                     if payment_id:
                         domain.append(('payment_id', '=', payment_id))
-                    else:
-                        domain.append(('payment_id', '=', False))
-                        
-                    existing = CommissionMove.search(domain)
-                    if existing:
-                        _logger.info(f"[COMMISSION] Ignorando duplicado para {rule.partner_id.name}")
+                    
+                    if CommissionMove.search_count(domain) > 0:
+                        _logger.info(f"[COMMISSION] Duplicado evitado para {rule.partner_id.name}")
                         continue
 
-                    # Cálculo
+                    # Cálculo del monto de comisión
                     comm_amount = 0.0
                     if rule.calculation_base == 'manual':
-                        comm_amount = rule.fixed_amount * ratio
+                        comm_amount = rule.fixed_amount * final_ratio
                     else:
-                        comm_amount = rule.estimated_amount * ratio
+                        comm_amount = rule.estimated_amount * final_ratio
                     
                     comm_amount *= sign
 
@@ -166,10 +163,7 @@ class SaleOrder(models.Model):
                         debug_logs.append(f"+ {comm_amount} ({rule.partner_id.name})")
 
         msg_type = "success" if created_count > 0 else "info"
-        final_msg = f"Proceso finalizado. {created_count} comisiones generadas."
-        if debug_logs:
-             final_msg += "\n" + "\n".join(debug_logs)
-
+        final_msg = f"Finalizado. {created_count} comisiones generadas."
         return self._return_notification(final_msg, msg_type)
 
     def _return_notification(self, message, type='info'):

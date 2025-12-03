@@ -9,68 +9,115 @@
         <field name="print_report_name">'Comisiones %s - %s' % (object.date_from, object.date_to)</field>
         <field name="binding_model_id" ref="model_commission_report_wizard"/>
         <field name="binding_type">report</field>
+        <!-- Formato horizontal (Landscape) recomendado por la cantidad de columnas -->
+        <field name="paperformat_id" ref="base.paperformat_euro"/> 
     </record>
 
     <!-- 2. Plantilla QWeb -->
     <template id="report_commission_document">
         <t t-call="web.html_container">
             <t t-call="web.external_layout">
-                <div class="page">
+                <div class="page" style="font-size: 11px;"> <!-- Reducimos fuente para que quepa todo -->
                     <div class="text-center mb-4">
-                        <h2>Reporte de Comisiones</h2>
+                        <h3>Reporte de Comisiones</h3>
                         <p>
-                            <strong>Desde:</strong> <span t-esc="data['date_from']" t-options='{"widget": "date"}'/>
-                            <span class="mx-2">-</span>
-                            <strong>Hasta:</strong> <span t-esc="data['date_to']" t-options='{"widget": "date"}'/>
+                            <strong>Periodo:</strong> <span t-esc="data['date_from']" t-options='{"widget": "date"}'/>
+                            al <span t-esc="data['date_to']" t-options='{"widget": "date"}'/>
                         </p>
                     </div>
 
                     <!-- Iterar sobre cada Vendedor -->
                     <t t-foreach="docs" t-as="group">
-                        <div class="mt-4 mb-2 p-2 bg-light border">
-                            <h4 class="m-0 text-primary">
-                                <span t-field="group['partner'].name"/>
-                            </h4>
+                        <div class="mt-3 mb-2 p-1 bg-light border-bottom">
+                            <strong class="text-primary" style="font-size: 14px;">
+                                Vendedor: <span t-field="group['partner'].name"/>
+                            </strong>
                         </div>
 
                         <table class="table table-sm table-striped table-bordered">
                             <thead class="thead-light">
                                 <tr>
-                                    <th>Fecha</th>
-                                    <th>Ref. Factura</th>
-                                    <th>Origen Venta</th>
-                                    <th>Pago Relacionado</th>
-                                    <th class="text-right">Base Cobrada</th>
-                                    <th class="text-center">% Calc.</th>
-                                    <th class="text-right">Comisión</th>
+                                    <!-- 1. # de Folio (Sale Order) -->
+                                    <th class="text-center" style="width: 10%;"># Folio</th>
+                                    
+                                    <!-- 2. Fecha Emisión Factura -->
+                                    <th class="text-center" style="width: 10%;">Fecha Fac.</th>
+                                    
+                                    <!-- 3. Razón Social (Cliente) -->
+                                    <th style="width: 15%;">Razón Social</th>
+                                    
+                                    <!-- 4. Job Name (Proyecto) -->
+                                    <th style="width: 12%;">Job Name</th>
+                                    
+                                    <!-- 5. Fecha de Pago -->
+                                    <th class="text-center" style="width: 10%;">Fecha Pago</th>
+                                    
+                                    <!-- 6. Factura (Folio) -->
+                                    <th class="text-center" style="width: 10%;">Factura</th>
+                                    
+                                    <!-- 7. Monto Total Factura (Base Pagada) -->
+                                    <th class="text-right" style="width: 12%;">Monto Cobrado<br/>(Base)</th>
+                                    
+                                    <!-- 8. % sobre la factura -->
+                                    <th class="text-center" style="width: 8%;">%</th>
+                                    
+                                    <!-- 9. Monto a comisionar -->
+                                    <th class="text-right" style="width: 13%;">A Comisionar</th>
                                 </tr>
                             </thead>
                             <tbody>
                                 <tr t-foreach="group['moves']" t-as="move">
-                                    <td><span t-field="move.date"/></td>
-                                    <td>
-                                        <!-- Obtenemos el nombre de la factura desde la línea contable -->
-                                        <span t-if="move.invoice_line_id" t-field="move.invoice_line_id.move_id.name"/>
+                                    <!-- 1. Origen Venta -->
+                                    <td class="text-center">
+                                        <span t-field="move.sale_order_id.name"/>
+                                    </td>
+
+                                    <!-- 2. Fecha Factura -->
+                                    <td class="text-center">
+                                        <!-- Accedemos a través de la línea de factura -> movimiento -> fecha -->
+                                        <span t-if="move.invoice_line_id" t-field="move.invoice_line_id.move_id.invoice_date"/>
                                         <span t-else="">-</span>
                                     </td>
-                                    <td><span t-field="move.sale_order_id.name"/></td>
+
+                                    <!-- 3. Cliente -->
                                     <td>
-                                        <span t-if="move.payment_id" t-field="move.payment_id.name"/>
-                                        <span t-else="">Asiento/Widget</span>
+                                        <span t-field="move.sale_order_id.partner_id.name" 
+                                              style="display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 150px;"/>
                                     </td>
+
+                                    <!-- 4. Job Name (x_project_id) -->
+                                    <td>
+                                        <span t-if="move.sale_order_id.x_project_id" t-field="move.sale_order_id.x_project_id.name"/>
+                                        <span t-else="" class="text-muted">-</span>
+                                    </td>
+
+                                    <!-- 5. Fecha Pago (Preferencia: Fecha del pago real, sino fecha del movimiento de comisión) -->
+                                    <td class="text-center">
+                                        <span t-if="move.payment_id" t-field="move.payment_id.date"/>
+                                        <span t-else="" t-field="move.date"/>
+                                    </td>
+
+                                    <!-- 6. Folio Factura -->
+                                    <td class="text-center">
+                                        <span t-if="move.invoice_line_id" t-field="move.invoice_line_id.move_id.name"/>
+                                        <span t-else="">(Varios/Manual)</span>
+                                    </td>
+
+                                    <!-- 7. Monto Total (Base Cobrada) -->
                                     <td class="text-right">
                                         <span t-field="move.base_amount_paid" 
                                               t-options='{"widget": "monetary", "display_currency": move.currency_id}'/>
                                     </td>
+
+                                    <!-- 8. % Calc -->
                                     <td class="text-center">
-                                        <!-- Calculamos el % efectivo visualmente -->
-                                        <t t-if="move.base_amount_paid != 0">
+                                        <t t-if="move.base_amount_paid and move.base_amount_paid != 0">
                                             <span t-esc="abs(round((move.amount / move.base_amount_paid) * 100, 2))"/>%
                                         </t>
-                                        <t t-else="">
-                                            Fixed
-                                        </t>
+                                        <t t-else="">Fixed</t>
                                     </td>
+
+                                    <!-- 9. Comisión -->
                                     <td class="text-right font-weight-bold">
                                         <span t-field="move.amount" 
                                               t-options='{"widget": "monetary", "display_currency": move.currency_id}'/>
@@ -78,31 +125,24 @@
                                 </tr>
                             </tbody>
                             <tfoot>
-                                <tr class="bg-white border-top">
-                                    <td colspan="4" class="text-right"><strong>Totales:</strong></td>
+                                <tr class="bg-white border-top font-weight-bold">
+                                    <td colspan="6" class="text-right text-uppercase">Totales:</td>
                                     <td class="text-right">
-                                        <strong>
-                                            <span t-esc="group['total_base']" 
-                                                  t-options='{"widget": "monetary", "display_currency": group["partner"].currency_id}'/>
-                                        </strong>
+                                        <span t-esc="group['total_base']" 
+                                              t-options='{"widget": "monetary", "display_currency": group["partner"].currency_id}'/>
                                     </td>
                                     <td></td>
-                                    <td class="text-right">
-                                        <strong class="text-success">
-                                            <span t-esc="group['total_commission']" 
-                                                  t-options='{"widget": "monetary", "display_currency": group["partner"].currency_id}'/>
-                                        </strong>
+                                    <td class="text-right text-success">
+                                        <span t-esc="group['total_commission']" 
+                                              t-options='{"widget": "monetary", "display_currency": group["partner"].currency_id}'/>
                                     </td>
                                 </tr>
                             </tfoot>
                         </table>
-                        
-                        <!-- Salto de página opcional entre vendedores si la lista es larga -->
-                        <!-- <p style="page-break-after:always;"></p> -->
                     </t>
 
-                    <div t-if="not docs" class="alert alert-warning mt-4">
-                        No se encontraron comisiones para el rango de fechas seleccionado.
+                    <div t-if="not docs" class="alert alert-warning mt-4 text-center">
+                        No hay registros de comisiones para este rango de fechas.
                     </div>
                 </div>
             </t>

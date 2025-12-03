@@ -4,7 +4,7 @@
     'category': 'Sales/Commissions',
     'summary': 'Motor de comisiones multi-agente basado en pagos, margenes y liquidaciones.',
     'author': 'Custom AI Solution',
-    'depends': ['sale_management', 'account', 'purchase'],
+    'depends': ['sale_management', 'account', 'purchase', 'project'],
     'data': [
         'security/security.xml',
         'security/ir.model.access.csv',
