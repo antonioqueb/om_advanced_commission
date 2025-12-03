@@ -8,21 +8,20 @@ class SaleOrder(models.Model):
     _inherit = 'sale.order'
 
     commission_rule_ids = fields.One2many('sale.commission.rule', 'sale_order_id', string='Reglas de Comisión')
-    
-    # Nuevo campo requerido para el reporte (Job Name)
     x_project_id = fields.Many2one('project.project', string='Proyecto (Job Name)')
 
     def action_recalc_commissions(self):
         """
-        Botón de emergencia/manual para generar comisiones.
-        Versión: CORREGIDA (Calcula proporción sobre la Venta Original, no sobre la Factura).
+        Recálculo forzado usando lógica de Asiento Contable (MXN)
         """
         self.ensure_one()
         CommissionMove = self.env['commission.move']
         created_count = 0
         debug_logs = []
+        
+        company_currency = self.company_id.currency_id
 
-        _logger.info(f"[COMMISSION] --- Inicio recálculo para: {self.name} ---")
+        _logger.info(f"[COMMISSION] --- Inicio recálculo MXN para: {self.name} ---")
 
         invoices = self.invoice_ids.filtered(lambda x: x.state == 'posted')
         
@@ -32,33 +31,33 @@ class SaleOrder(models.Model):
         if not self.commission_rule_ids:
             return self._return_notification("Faltan definir las Reglas de Comisión.", "danger")
 
-        # Limpiar comisiones previas en borrador para evitar duplicados sucios (Opcional)
-        # self.env['commission.move'].search([('sale_order_id', '=', self.id), ('state', '=', 'draft')]).unlink()
-
         for inv in invoices:
             if inv.payment_state == 'not_paid':
                 continue
             
-            # ---------------------------------------------------------
-            # ESTRATEGIA DE BÚSQUEDA DE PAGOS
-            # ---------------------------------------------------------
+            # --- 1. Obtener valores del Asiento Contable (MXN) ---
+            invoice_total_mxn = abs(inv.amount_total_signed)
+            
+            if invoice_total_mxn == 0:
+                continue
+
+            # --- 2. Buscar Pagos (En moneda original de la factura) ---
             payments_found = []
             
-            # 1. Widget de Pagos (JSON)
+            # A. Widget
             if inv.invoice_payments_widget:
                 try:
                     data = inv.invoice_payments_widget
                     content = data.get('content', []) if isinstance(data, dict) else []
                     for pay_info in content:
                         payments_found.append({
-                            'amount': pay_info.get('amount', 0.0),
+                            'amount_currency': pay_info.get('amount', 0.0), # Moneda Factura
                             'payment_id': pay_info.get('account_payment_id', False),
                             'ref': pay_info.get('ref', 'Vía Widget')
                         })
-                except Exception: 
-                    pass
+                except Exception: pass
 
-            # 2. Búsqueda Física (Conciliaciones Parciales)
+            # B. Reconciliaciones
             if not payments_found:
                 invoice_move_lines = inv.line_ids
                 partials = self.env['account.partial.reconcile'].search([
@@ -67,104 +66,106 @@ class SaleOrder(models.Model):
                 ])
                 for partial in partials:
                     payments_found.append({
-                        'amount': partial.amount, 
+                        'amount_currency': partial.amount, 
                         'payment_id': False, 
                         'ref': f"Conciliación {partial.id}"
                     })
 
-            # 3. Matemático / Forzado (Red de seguridad)
+            # C. Fallback Matemático
             if not payments_found and inv.amount_total > 0:
                 paid_amount = inv.amount_total - inv.amount_residual
                 if paid_amount > 0.01:
-                    payments_found.append({
-                        'amount': paid_amount, 
-                        'payment_id': False, 
-                        'ref': 'Saldo Calculado'
-                    })
+                    payments_found.append({'amount_currency': paid_amount, 'payment_id': False, 'ref': 'Saldo Calculado'})
                 elif inv.payment_state in ['in_payment', 'paid']:
-                    payments_found.append({
-                        'amount': inv.amount_total, 
-                        'payment_id': False, 
-                        'ref': 'Forzado Estado Visual'
-                    })
+                    payments_found.append({'amount_currency': inv.amount_total, 'payment_id': False, 'ref': 'Forzado Estado'})
 
             if not payments_found:
                 continue
 
-            # ---------------------------------------------------------
-            # CÁLCULO Y GENERACIÓN
-            # ---------------------------------------------------------
+            # --- 3. Cálculo ---
             is_refund = (inv.move_type == 'out_refund')
             sign = -1 if is_refund else 1
 
-            # Calcular cuánto de esta factura pertenece realmente a ESTA venta
-            # (Útil para facturas agrupadas o anticipos)
-            relevant_lines = inv.invoice_line_ids.filtered(lambda l: self.id in l.sale_line_ids.order_id.ids)
-            so_inv_total = sum(relevant_lines.mapped('price_total')) if relevant_lines else inv.amount_total
+            # Convertir SO Total a MXN para el denominador
+            so_total_mxn = self.currency_id._convert(
+                self.amount_total,
+                company_currency,
+                self.company_id,
+                self.date_order or fields.Date.today()
+            )
 
             for pay_data in payments_found:
-                amount_paid_on_invoice = pay_data['amount']
-                payment_id = pay_data['payment_id']
+                amount_paid_currency = pay_data['amount_currency']
                 
-                # Validaciones básicas
-                if amount_paid_on_invoice <= 0.01 or inv.amount_total == 0 or self.amount_total == 0: 
-                    continue
+                if amount_paid_currency <= 0.01 or inv.amount_total == 0: continue
 
-                # --- LÓGICA MATEMÁTICA CORREGIDA ---
-                # 1. ¿Qué porcentaje de la factura cubrió este pago? (Ej. Factura de 800, Pago de 800 = 100%)
-                invoice_payment_ratio = amount_paid_on_invoice / inv.amount_total
+                # A. Ratio de cobertura (Moneda Factura / Moneda Factura) -> Unitless
+                payment_ratio = amount_paid_currency / inv.amount_total
                 
-                # 2. ¿Cuánto dinero de la VENTA representa eso? (Ej. 800 * 100% = 800)
-                paid_amount_so_real = so_inv_total * invoice_payment_ratio
+                # B. Valor en MXN pagado (Basado en el asiento contable)
+                paid_mxn_real = invoice_total_mxn * payment_ratio
                 
-                # 3. ¿Qué porcentaje de la VENTA TOTAL es eso? (Ej. 800 / 10,000 = 0.08)
-                final_ratio = paid_amount_so_real / self.amount_total
+                # C. Ratio final contra la Venta en MXN
+                final_ratio = paid_mxn_real / so_total_mxn if so_total_mxn else 0
                 
-                amount_paid_signed = paid_amount_so_real * sign
+                amount_paid_signed_mxn = paid_mxn_real * sign
 
                 for rule in self.commission_rule_ids:
-                    # Candado Anti-Duplicados (Usando la base calculada real)
+                    # Candado Anti-Duplicados (En MXN)
                     domain = [
                         ('sale_order_id', '=', self.id),
                         ('partner_id', '=', rule.partner_id.id),
-                        ('base_amount_paid', '>=', amount_paid_signed - 0.1),
-                        ('base_amount_paid', '<=', amount_paid_signed + 0.1),
+                        ('currency_id', '=', company_currency.id), # Check duplicados en MXN
+                        ('base_amount_paid', '>=', amount_paid_signed_mxn - 1.0), # Tolerancia de $1 peso por redondeos
+                        ('base_amount_paid', '<=', amount_paid_signed_mxn + 1.0),
                     ]
-                    if payment_id:
-                        domain.append(('payment_id', '=', payment_id))
                     
                     if CommissionMove.search_count(domain) > 0:
-                        _logger.info(f"[COMMISSION] Duplicado evitado para {rule.partner_id.name}")
                         continue
 
-                    # Cálculo del monto de comisión
-                    comm_amount = 0.0
-                    if rule.calculation_base == 'manual':
-                        comm_amount = rule.fixed_amount * final_ratio
-                    else:
-                        comm_amount = rule.estimated_amount * final_ratio
+                    # Calcular Comisión en MXN
+                    comm_amount_mxn = 0.0
                     
-                    comm_amount *= sign
+                    # Convertir estimados a MXN
+                    rule_estimated_mxn = self.currency_id._convert(
+                        rule.estimated_amount,
+                        company_currency,
+                        self.company_id,
+                        self.date_order or fields.Date.today()
+                    )
+                    
+                    rule_fixed_mxn = rule.currency_id._convert(
+                        rule.fixed_amount,
+                        company_currency,
+                        self.company_id,
+                        self.date_order or fields.Date.today()
+                    ) if rule.fixed_amount else 0.0
 
-                    if abs(comm_amount) > 0.01:
+                    if rule.calculation_base == 'manual':
+                        comm_amount_mxn = rule_fixed_mxn * final_ratio
+                    else:
+                        comm_amount_mxn = rule_estimated_mxn * final_ratio
+                    
+                    comm_amount_mxn *= sign
+
+                    if abs(comm_amount_mxn) > 0.01:
                         CommissionMove.create({
                             'partner_id': rule.partner_id.id,
                             'sale_order_id': self.id,
-                            'payment_id': payment_id or False,
+                            'payment_id': pay_data['payment_id'] or False,
                             'invoice_line_id': inv.invoice_line_ids[0].id if inv.invoice_line_ids else False,
-                            'amount': comm_amount,
-                            'base_amount_paid': amount_paid_signed,
-                            'currency_id': self.currency_id.id,
+                            'amount': comm_amount_mxn,
+                            'base_amount_paid': amount_paid_signed_mxn,
+                            'currency_id': company_currency.id, # GUARDAR EN MXN
                             'is_refund': is_refund,
                             'state': 'draft',
                             'name': f"Cmsn: {inv.name} ({pay_data['ref']})"
                         })
                         created_count += 1
-                        debug_logs.append(f"+ {comm_amount} ({rule.partner_id.name})")
+                        debug_logs.append(f"+ {comm_amount_mxn} {company_currency.symbol}")
 
         msg_type = "success" if created_count > 0 else "info"
-        final_msg = f"Finalizado. {created_count} comisiones generadas."
-        return self._return_notification(final_msg, msg_type)
+        return self._return_notification(f"Finalizado MXN. {created_count} creadas.", msg_type)
 
     def _return_notification(self, message, type='info'):
         return {

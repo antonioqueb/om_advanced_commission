@@ -8,21 +8,20 @@ class AccountPartialReconcile(models.Model):
 
     def _create_commission_moves(self):
         """ 
-        Detecta pagos sobre facturas de venta y calcula comisión proporcional
-        basada en el porcentaje real pagado sobre el TOTAL DE LA VENTA (SO),
-        no sobre el total de la factura.
+        Detecta pagos y calcula comisión basada SIEMPRE en la moneda de la compañía (MXN),
+        usando los valores del asiento contable (amount_total_signed) para evitar
+        problemas con facturas en dólares.
         """
         CommissionMove = self.env['commission.move']
         
         for rec in self:
             try:
-                # 1. Identificar factura (debit) y pago (credit)
+                # 1. Identificar factura (debit) y pago (credit) de forma segura
                 invoice = rec.debit_move_id.move_id
                 payment = rec.credit_move_id.move_id
-                amount_reconciled = rec.amount
+                amount_reconciled_currency_invoice = rec.amount # Monto en moneda de la factura/pago
                 is_refund = False
 
-                # Caso inverso
                 if invoice.move_type not in ['out_invoice', 'out_refund']:
                     invoice = rec.credit_move_id.move_id
                     payment = rec.debit_move_id.move_id
@@ -43,64 +42,89 @@ class AccountPartialReconcile(models.Model):
                 if not sale_orders:
                     sale_orders = self.env['sale.order'].search([('invoice_ids', 'in', invoice_origin.id)])
                     if not sale_orders:
-                        _logger.warning(f"[COMMISSION] ALERTA: Factura {invoice_origin.name} pagada, sin Orden de Venta.")
                         continue
+
+                # 3. Preparar datos en Moneda de la Compañía (MXN)
+                company = invoice_origin.company_id
+                company_currency = company.currency_id
+                
+                # Obtener el valor contable real en MXN de la factura (Asiento Contable)
+                # Usamos abs() porque signed puede ser negativo dependiendo de la naturaleza contable
+                invoice_total_mxn = abs(invoice_origin.amount_total_signed)
+                
+                # Evitar división por cero
+                if invoice_origin.amount_total == 0 or invoice_total_mxn == 0:
+                    continue
+
+                # Calcular qué porcentaje de la factura en moneda original se está pagando
+                # Ej: Factura 100 USD, Pago 50 USD -> Ratio 0.5
+                payment_ratio = amount_reconciled_currency_invoice / invoice_origin.amount_total
+
+                # Calcular cuánto representa ese pago en MXN según el asiento de la factura
+                # Ej: Factura 2000 MXN * 0.5 = 1000 MXN pagados
+                paid_amount_mxn = invoice_total_mxn * payment_ratio
 
                 for so in sale_orders:
                     if not so.commission_rule_ids:
                         continue
-
-                    # --- CORRECCIÓN MATEMÁTICA INICIO ---
-                    if invoice_origin.amount_total == 0 or so.amount_total == 0:
-                        continue
                     
-                    # A. ¿Cuánto de esta factura pertenece a ESTA venta específica?
-                    # (Vital si agrupas varias ventas en una factura, o para anticipos)
-                    relevant_lines = invoice_origin.invoice_line_ids.filtered(
-                        lambda l: so.id in l.sale_line_ids.order_id.ids
+                    # Convertir el total de la SO a MXN (para mantener la proporción correcta de anticipos)
+                    # Usamos la fecha de la orden para la conversión histórica o el día de hoy
+                    so_total_mxn = so.currency_id._convert(
+                        so.amount_total,
+                        company_currency,
+                        so.company_id,
+                        so.date_order or fields.Date.today()
                     )
-                    
-                    # Si no encontramos líneas directas (caso raro de migración), asumimos el total
-                    so_invoice_total = sum(relevant_lines.mapped('price_total')) if relevant_lines else invoice_origin.amount_total
 
-                    # B. ¿Qué porcentaje de la FACTURA se está pagando ahora?
-                    payment_coverage_ratio = amount_reconciled / invoice_origin.amount_total
+                    if so_total_mxn == 0:
+                        continue
 
-                    # C. ¿Cuánto dinero REAL de la VENTA se está pagando?
-                    paid_amount_attributable_to_so = so_invoice_total * payment_coverage_ratio
-
-                    # D. RATIO FINAL: (Monto de Venta Pagado) / (Total Venta Original)
-                    # Esto normaliza el anticipo (ej. 800 pagados / 1000 venta = 0.8)
-                    ratio = paid_amount_attributable_to_so / so.amount_total
-                    
-                    # --- CORRECCIÓN MATEMÁTICA FIN ---
-
+                    # Calcular proporción sobre la venta total en MXN
+                    final_ratio_mxn = paid_amount_mxn / so_total_mxn
                     sign = -1 if is_refund else 1
-                    
-                    _logger.info(f"[COMMISSION] Venta {so.name} | Pagado SO: {paid_amount_attributable_to_so} | Ratio Final: {ratio}")
+
+                    _logger.info(f"[COMMISSION] Factura: {invoice.name} | Pago MXN: {paid_amount_mxn} | Ratio MXN: {final_ratio_mxn}")
 
                     for rule in so.commission_rule_ids:
-                        commission_amount = 0.0
+                        commission_amount_mxn = 0.0
                         
-                        # Al usar el nuevo ratio contra el 'estimated_amount' (que es el total teórico),
-                        # obtenemos la porción correcta.
+                        # Convertir el estimado de la regla a MXN
+                        rule_estimated_mxn = so.currency_id._convert(
+                            rule.estimated_amount,
+                            company_currency,
+                            so.company_id,
+                            so.date_order or fields.Date.today()
+                        )
+                        
+                        # Convertir monto fijo manual a MXN si fuera necesario
+                        rule_fixed_mxn = 0.0
                         if rule.calculation_base == 'manual':
-                            commission_amount = rule.fixed_amount * ratio
-                        else:
-                            commission_amount = rule.estimated_amount * ratio
+                            rule_fixed_mxn = rule.currency_id._convert(
+                                rule.fixed_amount,
+                                company_currency,
+                                so.company_id,
+                                so.date_order or fields.Date.today()
+                            )
 
-                        if abs(commission_amount) > 0.001: # Filtro de redondeo
+                        # Cálculo final en MXN
+                        if rule.calculation_base == 'manual':
+                            commission_amount_mxn = rule_fixed_mxn * final_ratio_mxn
+                        else:
+                            commission_amount_mxn = rule_estimated_mxn * final_ratio_mxn
+
+                        if abs(commission_amount_mxn) > 0.01:
                             CommissionMove.create({
                                 'partner_id': rule.partner_id.id,
                                 'sale_order_id': so.id,
                                 'invoice_line_id': invoice_origin.invoice_line_ids[0].id if invoice_origin.invoice_line_ids else False,
                                 'payment_id': self.env['account.payment'].search([('move_id', '=', payment.id)], limit=1).id,
-                                'amount': commission_amount * sign,
-                                'base_amount_paid': paid_amount_attributable_to_so * sign, # Guardamos la base real de venta
-                                'currency_id': so.currency_id.id,
+                                'amount': commission_amount_mxn * sign,
+                                'base_amount_paid': paid_amount_mxn * sign,
+                                'currency_id': company_currency.id, # ¡Forzamos MXN!
                                 'is_refund': is_refund,
                                 'state': 'draft',
-                                'name': f"Cmsn: {invoice.name} ({round(ratio*100, 1)}%)"
+                                'name': f"Cmsn: {invoice.name} ({round(final_ratio_mxn*100, 1)}%)"
                             })
 
             except Exception as e:
