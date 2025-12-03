@@ -54,15 +54,15 @@
                             <thead style="background-color: #000000; color: #FFFFFF;">
                                 <tr style="border-bottom: 2px solid #000;">
                                     <th class="text-center align-middle"
-                                        style="width: 9%; padding: 8px; font-weight: 600; color: #FFFFFF !important; font-size: 9px;">
-                                        # DE PEDIDO
+                                        style="width: 8%; padding: 8px; font-weight: 600; color: #FFFFFF !important; font-size: 9px;">
+                                        FOLIO
                                     </th>
                                     <th class="text-center align-middle"
                                         style="width: 13%; padding: 8px; font-weight: 600; color: #FFFFFF !important; font-size: 9px;">
-                                        FECHA EMISIÓN FACTURA
+                                        EMISIÓN FACTURA
                                     </th>
                                     <th class="align-middle"
-                                        style="width: 16%; padding: 8px; font-weight: 600; color: #FFFFFF !important; font-size: 9px;">
+                                        style="width: 14%; padding: 8px; font-weight: 600; color: #FFFFFF !important; font-size: 9px;">
                                         RAZÓN SOCIAL
                                     </th>
                                     <th class="align-middle"
@@ -70,7 +70,7 @@
                                         JOB NAME
                                     </th>
                                     <th class="text-center align-middle"
-                                        style="width: 9%; padding: 8px; font-weight: 600; color: #FFFFFF !important; font-size: 9px;">
+                                        style="width: 11%; padding: 8px; font-weight: 600; color: #FFFFFF !important; font-size: 9px;">
                                         FECHA PAGO
                                     </th>
                                     <th class="text-center align-middle"
@@ -79,14 +79,14 @@
                                     </th>
                                     <th class="text-right align-middle"
                                         style="width: 12%; padding: 8px; font-weight: 600; color: #FFFFFF !important; font-size: 9px;">
-                                        MONTO TOTAL FACTURA ((SIN IVA)
+                                        MONTO FACT. (SIN IVA)
                                     </th>
                                     <th class="text-center align-middle"
-                                        style="width: 8%; padding: 8px; font-weight: 600; color: #FFFFFF !important; font-size: 9px;">
-                                        % SOBRE FACTURA
+                                        style="width: 10%; padding: 8px; font-weight: 600; color: #FFFFFF !important; font-size: 9px;">
+                                        % COMISIÓN
                                     </th>
                                     <th class="text-right align-middle"
-                                        style="width: 15%; padding: 8px; font-weight: 600; color: #FFFFFF !important; font-size: 9px;">
+                                        style="width: 14%; padding: 8px; font-weight: 600; color: #FFFFFF !important; font-size: 9px;">
                                         MONTO COMISIÓN
                                     </th>
                                 </tr>
