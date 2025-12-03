@@ -37,7 +37,7 @@
                     <!-- Iterar sobre cada Vendedor -->
                     <t t-foreach="docs" t-as="group">
                         
-                        <!-- SEPARADOR DE VENDEDOR ESTILO CLEAN -->
+                        <!-- SEPARADOR DE VENDEDOR -->
                         <div class="mt-4 mb-3" style="border-left: 6px solid #000; padding-left: 10px; background-color: #f8f9fa; padding-top:8px; padding-bottom:8px;">
                             <span style="font-size: 15px; font-weight: bold; color: #212529; text-transform: uppercase;">
                                 <i class="fa fa-user-circle-o mr-2" style="opacity: 0.6;"></i>
@@ -47,22 +47,25 @@
 
                         <!-- TABLA MODERNA -->
                         <table class="table table-sm table-borderless" style="margin-bottom: 30px;">
-                            <!-- CABECERA NEGRA, TEXTO BLANCO -->
-                            <thead style="background-color: #1a1a1a; color: #ffffff;">
+                            <!-- 
+                                CABECERA NEGRA, TEXTO BLANCO 
+                                Nota: Usamos !important en el color para sobreescribir estilos de Bootstrap en PDF 
+                            -->
+                            <thead style="background-color: #000000; color: #FFFFFF;">
                                 <tr style="border-bottom: 2px solid #000;">
-                                    <th class="text-center align-middle" style="width: 9%; padding: 8px; font-weight: 600;">FOLIO</th>
-                                    <th class="text-center align-middle" style="width: 9%; padding: 8px; font-weight: 600;">FECHA FAC.</th>
-                                    <th class="align-middle" style="width: 16%; padding: 8px; font-weight: 600;">CLIENTE</th>
-                                    <th class="align-middle" style="width: 13%; padding: 8px; font-weight: 600;">PROYECTO</th>
-                                    <th class="text-center align-middle" style="width: 9%; padding: 8px; font-weight: 600;">F. PAGO</th>
-                                    <th class="text-center align-middle" style="width: 9%; padding: 8px; font-weight: 600;">FACTURA</th>
-                                    <th class="text-right align-middle" style="width: 12%; padding: 8px; font-weight: 600;">BASE ($)</th>
-                                    <th class="text-center align-middle" style="width: 8%; padding: 8px; font-weight: 600;">%</th>
-                                    <th class="text-right align-middle" style="width: 15%; padding: 8px; font-weight: 600;">COMISIÓN ($)</th>
+                                    <th class="text-center align-middle" style="width: 9%; padding: 8px; font-weight: 600; color: #FFFFFF !important;">FOLIO</th>
+                                    <th class="text-center align-middle" style="width: 9%; padding: 8px; font-weight: 600; color: #FFFFFF !important;">FECHA FAC.</th>
+                                    <th class="align-middle" style="width: 16%; padding: 8px; font-weight: 600; color: #FFFFFF !important;">CLIENTE</th>
+                                    <th class="align-middle" style="width: 13%; padding: 8px; font-weight: 600; color: #FFFFFF !important;">PROYECTO</th>
+                                    <th class="text-center align-middle" style="width: 9%; padding: 8px; font-weight: 600; color: #FFFFFF !important;">F. PAGO</th>
+                                    <th class="text-center align-middle" style="width: 9%; padding: 8px; font-weight: 600; color: #FFFFFF !important;">FACTURA</th>
+                                    <th class="text-right align-middle" style="width: 12%; padding: 8px; font-weight: 600; color: #FFFFFF !important;">BASE ($)</th>
+                                    <th class="text-center align-middle" style="width: 8%; padding: 8px; font-weight: 600; color: #FFFFFF !important;">%</th>
+                                    <th class="text-right align-middle" style="width: 15%; padding: 8px; font-weight: 600; color: #FFFFFF !important;">COMISIÓN ($)</th>
                                 </tr>
                             </thead>
                             
-                            <!-- CUERPO CON BORDES HORIZONTALES SUTILES -->
+                            <!-- CUERPO -->
                             <tbody>
                                 <tr t-foreach="group['moves']" t-as="move" style="border-bottom: 1px solid #e9ecef;">
                                     <td class="text-center align-middle py-2">
@@ -96,13 +99,12 @@
                                         <span t-field="move.base_amount_paid" 
                                               t-options='{"widget": "monetary", "display_currency": move.currency_id}'/>
                                     </td>
+                                    <!-- Porcentaje limpio (sin fondo) -->
                                     <td class="text-center align-middle">
-                                        <span class="badge badge-dark" style="background-color: #333; color: white;">
-                                            <t t-if="move.base_amount_paid and move.base_amount_paid != 0">
-                                                <span t-esc="abs(round((move.amount / move.base_amount_paid) * 100, 2))"/>%
-                                            </t>
-                                            <t t-else="">Fijo</t>
-                                        </span>
+                                        <t t-if="move.base_amount_paid and move.base_amount_paid != 0">
+                                            <span t-esc="abs(round((move.amount / move.base_amount_paid) * 100, 2))" style="font-weight: bold;"/>%
+                                        </t>
+                                        <t t-else="">Fijo</t>
                                     </td>
                                     <td class="text-right align-middle" style="font-weight: bold; color: #000;">
                                         <span t-field="move.amount" 
@@ -111,7 +113,7 @@
                                 </tr>
                             </tbody>
 
-                            <!-- PIE DE TOTALES CON ESTILO "INVOICE TOTAL" -->
+                            <!-- PIE DE TOTALES -->
                             <tfoot>
                                 <tr style="background-color: #f0f0f0;">
                                     <td colspan="6" class="text-right align-middle text-uppercase" style="padding: 10px; font-weight: bold; color: #555;">
@@ -135,6 +137,18 @@
                         <h4 class="alert-heading">Sin Información</h4>
                         <p>No se encontraron comisiones aprobadas o pendientes para este rango de fechas.</p>
                     </div>
+
+                    <!-- NOTA LEGAL / DISCLAIMER -->
+                    <div class="row" style="margin-top: 50px; page-break-inside: avoid;">
+                        <div class="col-12">
+                            <div style="border-top: 1px solid #ccc; padding-top: 10px; font-size: 9px; color: #666; text-align: justify;">
+                                <strong>IMPORTANTE:</strong> Las comisiones detalladas en el presente reporte han sido calculadas sobre la base de los pagos efectivamente recibidos.
+                                Se hace constar que aquellas comisiones previamente liquidadas que sean objeto de <strong>devoluciones, cancelaciones o notas de crédito</strong> posteriores
+                                por parte del cliente, resultarán en un ajuste negativo (deducción) automático en el siguiente periodo de cálculo y liquidación de comisiones del agente correspondiente.
+                            </div>
+                        </div>
+                    </div>
+
                 </div>
             </t>
         </t>
