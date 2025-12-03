@@ -12,16 +12,16 @@ class SaleOrder(models.Model):
 
     def action_recalc_commissions(self):
         """
-        Recálculo forzado usando lógica de Asiento Contable (MXN)
+        Recálculo forzado usando lógica de Asiento Contable (MXN).
+        CORRECCIÓN: Base calculada sobre Subtotal (Untaxed).
         """
         self.ensure_one()
         CommissionMove = self.env['commission.move']
         created_count = 0
-        debug_logs = []
         
         company_currency = self.company_id.currency_id
 
-        _logger.info(f"[COMMISSION] --- Inicio recálculo MXN para: {self.name} ---")
+        _logger.info(f"[COMMISSION] --- Inicio recálculo MXN (Base s/Impuestos) para: {self.name} ---")
 
         invoices = self.invoice_ids.filtered(lambda x: x.state == 'posted')
         
@@ -36,9 +36,14 @@ class SaleOrder(models.Model):
                 continue
             
             # --- 1. Obtener valores del Asiento Contable (MXN) ---
-            invoice_total_mxn = abs(inv.amount_total_signed)
             
-            if invoice_total_mxn == 0:
+            # CAMBIO: Usamos el Subtotal (Untaxed) del asiento contable
+            invoice_untaxed_mxn = abs(inv.amount_untaxed_signed)
+            
+            # También necesitamos el Total para calcular el Ratio de pago
+            invoice_total_original = inv.amount_total
+            
+            if invoice_total_original == 0:
                 continue
 
             # --- 2. Buscar Pagos (En moneda original de la factura) ---
@@ -86,7 +91,7 @@ class SaleOrder(models.Model):
             is_refund = (inv.move_type == 'out_refund')
             sign = -1 if is_refund else 1
 
-            # Convertir SO Total a MXN para el denominador
+            # Convertir SO Total a MXN para el denominador del ratio final
             so_total_mxn = self.currency_id._convert(
                 self.amount_total,
                 company_currency,
@@ -97,27 +102,33 @@ class SaleOrder(models.Model):
             for pay_data in payments_found:
                 amount_paid_currency = pay_data['amount_currency']
                 
-                if amount_paid_currency <= 0.01 or inv.amount_total == 0: continue
+                if amount_paid_currency <= 0.01: continue
 
                 # A. Ratio de cobertura (Moneda Factura / Moneda Factura) -> Unitless
-                payment_ratio = amount_paid_currency / inv.amount_total
+                # Esto nos dice: "Se pagó el 50% de la factura"
+                payment_ratio = amount_paid_currency / invoice_total_original
                 
-                # B. Valor en MXN pagado (Basado en el asiento contable)
-                paid_mxn_real = invoice_total_mxn * payment_ratio
+                # B. Base Pagada Real en MXN (Sin Impuestos)
+                # Aplicamos ese 50% al Subtotal Contable
+                paid_base_mxn = invoice_untaxed_mxn * payment_ratio
                 
-                # C. Ratio final contra la Venta en MXN
-                final_ratio = paid_mxn_real / so_total_mxn if so_total_mxn else 0
+                # Valor firmado para guardar en DB
+                paid_base_signed_mxn = paid_base_mxn * sign
                 
-                amount_paid_signed_mxn = paid_mxn_real * sign
-
+                # C. Ratio final contra la Venta Total (Para calcular monto comisión)
+                # Reconstruimos lo pagado en Total (con iva) para el cálculo monetario
+                paid_total_real_mxn = abs(inv.amount_total_signed) * payment_ratio
+                final_ratio = paid_total_real_mxn / so_total_mxn if so_total_mxn else 0
+                
                 for rule in self.commission_rule_ids:
                     # Candado Anti-Duplicados (En MXN)
+                    # Usamos paid_base_signed_mxn para verificar si ya existe esa base registrada
                     domain = [
                         ('sale_order_id', '=', self.id),
                         ('partner_id', '=', rule.partner_id.id),
-                        ('currency_id', '=', company_currency.id), # Check duplicados en MXN
-                        ('base_amount_paid', '>=', amount_paid_signed_mxn - 1.0), # Tolerancia de $1 peso por redondeos
-                        ('base_amount_paid', '<=', amount_paid_signed_mxn + 1.0),
+                        ('currency_id', '=', company_currency.id),
+                        ('base_amount_paid', '>=', paid_base_signed_mxn - 1.0), 
+                        ('base_amount_paid', '<=', paid_base_signed_mxn + 1.0),
                     ]
                     
                     if CommissionMove.search_count(domain) > 0:
@@ -155,15 +166,17 @@ class SaleOrder(models.Model):
                             'payment_id': pay_data['payment_id'] or False,
                             'invoice_line_id': inv.invoice_line_ids[0].id if inv.invoice_line_ids else False,
                             'amount': comm_amount_mxn,
-                            'base_amount_paid': amount_paid_signed_mxn,
-                            'currency_id': company_currency.id, # GUARDAR EN MXN
+                            
+                            # AQUI EL CAMBIO: Guardamos la base sin impuestos
+                            'base_amount_paid': paid_base_signed_mxn,
+                            
+                            'currency_id': company_currency.id, 
                             'is_refund': is_refund,
                             'state': 'draft',
                             'name': f"Cmsn: {inv.name} ({pay_data['ref']})"
                         })
                         created_count += 1
-                        debug_logs.append(f"+ {comm_amount_mxn} {company_currency.symbol}")
-
+                        
         msg_type = "success" if created_count > 0 else "info"
         return self._return_notification(f"Finalizado MXN. {created_count} creadas.", msg_type)
 

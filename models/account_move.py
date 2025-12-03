@@ -8,9 +8,9 @@ class AccountPartialReconcile(models.Model):
 
     def _create_commission_moves(self):
         """ 
-        Detecta pagos y calcula comisión basada SIEMPRE en la moneda de la compañía (MXN),
-        usando los valores del asiento contable (amount_total_signed) para evitar
-        problemas con facturas en dólares.
+        Detecta pagos y calcula comisión. 
+        CORRECCIÓN: La base 'base_amount_paid' ahora se calcula sobre el Subtotal (Untaxed)
+        para que los reportes de porcentaje sean consistentes (ej. 2.5% real).
         """
         CommissionMove = self.env['commission.move']
         
@@ -48,28 +48,30 @@ class AccountPartialReconcile(models.Model):
                 company = invoice_origin.company_id
                 company_currency = company.currency_id
                 
-                # Obtener el valor contable real en MXN de la factura (Asiento Contable)
-                # Usamos abs() porque signed puede ser negativo dependiendo de la naturaleza contable
-                invoice_total_mxn = abs(invoice_origin.amount_total_signed)
+                # --- CAMBIO IMPORTANTE: BASES SIN IMPUESTOS ---
+                # Obtenemos el Subtotal (Untaxed) del asiento contable en MXN
+                invoice_untaxed_mxn = abs(invoice_origin.amount_untaxed_signed)
+                
+                # Necesitamos el total original solo para calcular el % de cobertura del pago
+                invoice_total_original = invoice_origin.amount_total
                 
                 # Evitar división por cero
-                if invoice_origin.amount_total == 0 or invoice_total_mxn == 0:
+                if invoice_total_original == 0:
                     continue
 
-                # Calcular qué porcentaje de la factura en moneda original se está pagando
-                # Ej: Factura 100 USD, Pago 50 USD -> Ratio 0.5
-                payment_ratio = amount_reconciled_currency_invoice / invoice_origin.amount_total
+                # Calcular RATIO: Qué porcentaje de la factura total se está pagando
+                # Ej: Factura 116, Pago 58 -> Ratio 0.5 (50%)
+                payment_ratio = amount_reconciled_currency_invoice / invoice_total_original
 
-                # Calcular cuánto representa ese pago en MXN según el asiento de la factura
-                # Ej: Factura 2000 MXN * 0.5 = 1000 MXN pagados
-                paid_amount_mxn = invoice_total_mxn * payment_ratio
+                # Calcular BASE PAGADA REAL (Sobre Subtotal)
+                # Ej: Subtotal 100 * 0.5 = 50 pesos de base comisionable
+                paid_base_mxn = invoice_untaxed_mxn * payment_ratio
 
                 for so in sale_orders:
                     if not so.commission_rule_ids:
                         continue
                     
-                    # Convertir el total de la SO a MXN (para mantener la proporción correcta de anticipos)
-                    # Usamos la fecha de la orden para la conversión histórica o el día de hoy
+                    # Convertir el total de la SO a MXN (para mantener la proporción correcta)
                     so_total_mxn = so.currency_id._convert(
                         so.amount_total,
                         company_currency,
@@ -77,14 +79,25 @@ class AccountPartialReconcile(models.Model):
                         so.date_order or fields.Date.today()
                     )
 
+                    # Nota: Para el cálculo del dinero de la comisión, seguimos usando los totales
+                    # para prorratear correctamente contra el total de la orden, pero la base visual
+                    # será 'paid_base_mxn'.
+                    
                     if so_total_mxn == 0:
                         continue
 
                     # Calcular proporción sobre la venta total en MXN
-                    final_ratio_mxn = paid_amount_mxn / so_total_mxn
+                    # Aquí usamos el monto pagado (con iva implícito en el ratio) vs total venta
+                    # para saber cuánto de la venta global representa este pago.
+                    # Sin embargo, para visualizar en reporte usaremos paid_base_mxn.
+                    
+                    # Reconstruimos el monto pagado TOTAL en MXN solo para el ratio de la regla
+                    paid_total_mxn = abs(invoice_origin.amount_total_signed) * payment_ratio
+                    final_ratio_mxn = paid_total_mxn / so_total_mxn
+                    
                     sign = -1 if is_refund else 1
 
-                    _logger.info(f"[COMMISSION] Factura: {invoice.name} | Pago MXN: {paid_amount_mxn} | Ratio MXN: {final_ratio_mxn}")
+                    _logger.info(f"[COMMISSION] Fac: {invoice.name} | Base s/Imp: {paid_base_mxn}")
 
                     for rule in so.commission_rule_ids:
                         commission_amount_mxn = 0.0
@@ -120,8 +133,11 @@ class AccountPartialReconcile(models.Model):
                                 'invoice_line_id': invoice_origin.invoice_line_ids[0].id if invoice_origin.invoice_line_ids else False,
                                 'payment_id': self.env['account.payment'].search([('move_id', '=', payment.id)], limit=1).id,
                                 'amount': commission_amount_mxn * sign,
-                                'base_amount_paid': paid_amount_mxn * sign,
-                                'currency_id': company_currency.id, # ¡Forzamos MXN!
+                                
+                                # AQUI EL CAMBIO: Guardamos la base sin impuestos
+                                'base_amount_paid': paid_base_mxn * sign,
+                                
+                                'currency_id': company_currency.id, # MXN
                                 'is_refund': is_refund,
                                 'state': 'draft',
                                 'name': f"Cmsn: {invoice.name} ({round(final_ratio_mxn*100, 1)}%)"
