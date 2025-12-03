@@ -53,16 +53,44 @@
                             -->
                             <thead style="background-color: #000000; color: #FFFFFF;">
                                 <tr style="border-bottom: 2px solid #000;">
-                                    <th class="text-center align-middle" style="width: 9%; padding: 8px; font-weight: 600; color: #FFFFFF !important;">FOLIO</th>
-                                    <th class="text-center align-middle" style="width: 9%; padding: 8px; font-weight: 600; color: #FFFFFF !important;">FECHA FAC.</th>
-                                    <th class="align-middle" style="width: 16%; padding: 8px; font-weight: 600; color: #FFFFFF !important;">CLIENTE</th>
-                                    <th class="align-middle" style="width: 13%; padding: 8px; font-weight: 600; color: #FFFFFF !important;">PROYECTO</th>
-                                    <th class="text-center align-middle" style="width: 9%; padding: 8px; font-weight: 600; color: #FFFFFF !important;">F. PAGO</th>
-                                    <th class="text-center align-middle" style="width: 9%; padding: 8px; font-weight: 600; color: #FFFFFF !important;">FACTURA</th>
-                                    <th class="text-right align-middle" style="width: 12%; padding: 8px; font-weight: 600; color: #FFFFFF !important;">BASE ($)</th>
-                                    <th class="text-center align-middle" style="width: 8%; padding: 8px; font-weight: 600; color: #FFFFFF !important;">%</th>
-                                    <th class="text-right align-middle" style="width: 15%; padding: 8px; font-weight: 600; color: #FFFFFF !important;">COMISIÓN ($)</th>
+                                    <th class="text-center align-middle"
+                                        style="width: 9%; padding: 8px; font-weight: 600; color: #FFFFFF !important; font-size: 9px;">
+                                        # DE PEDIDO
+                                    </th>
+                                    <th class="text-center align-middle"
+                                        style="width: 13%; padding: 8px; font-weight: 600; color: #FFFFFF !important; font-size: 9px;">
+                                        FECHA EMISIÓN FACTURA
+                                    </th>
+                                    <th class="align-middle"
+                                        style="width: 16%; padding: 8px; font-weight: 600; color: #FFFFFF !important; font-size: 9px;">
+                                        RAZÓN SOCIAL
+                                    </th>
+                                    <th class="align-middle"
+                                        style="width: 10%; padding: 8px; font-weight: 600; color: #FFFFFF !important; font-size: 9px;">
+                                        JOB NAME
+                                    </th>
+                                    <th class="text-center align-middle"
+                                        style="width: 9%; padding: 8px; font-weight: 600; color: #FFFFFF !important; font-size: 9px;">
+                                        FECHA PAGO
+                                    </th>
+                                    <th class="text-center align-middle"
+                                        style="width: 9%; padding: 8px; font-weight: 600; color: #FFFFFF !important; font-size: 9px;">
+                                        FACTURA
+                                    </th>
+                                    <th class="text-right align-middle"
+                                        style="width: 12%; padding: 8px; font-weight: 600; color: #FFFFFF !important; font-size: 9px;">
+                                        MONTO TOTAL FACTURA ((SIN IVA)
+                                    </th>
+                                    <th class="text-center align-middle"
+                                        style="width: 8%; padding: 8px; font-weight: 600; color: #FFFFFF !important; font-size: 9px;">
+                                        % SOBRE FACTURA
+                                    </th>
+                                    <th class="text-right align-middle"
+                                        style="width: 15%; padding: 8px; font-weight: 600; color: #FFFFFF !important; font-size: 9px;">
+                                        MONTO COMISIÓN
+                                    </th>
                                 </tr>
+
                             </thead>
                             
                             <!-- CUERPO -->
