@@ -10,21 +10,31 @@ class AccountPartialReconcile(models.Model):
     def _create_commission_moves(self):
         """
         Crea commission.move por cada partial reconcile.
-        Robusto ante: multi-moneda, multi-SO por factura, duplicados, refunds.
+        Solo procesa partials que involucren líneas receivable de facturas de cliente.
         """
-        CommissionMove = self.env['commission.move']
+        CommissionMove = self.env['commission.move'].sudo()
 
         for rec in self:
             try:
                 # --- 1. Identificar factura y pago ---
-                invoice = rec.debit_move_id.move_id
-                payment = rec.credit_move_id.move_id
+                # Determinar cuál move line es de la factura
+                debit_move = rec.debit_move_id
+                credit_move = rec.credit_move_id
+
+                invoice = debit_move.move_id
+                payment = credit_move.move_id
 
                 if invoice.move_type not in ('out_invoice', 'out_refund'):
                     invoice, payment = payment, invoice
+                    debit_move, credit_move = credit_move, debit_move
 
-                # Si ninguno es factura de cliente, skip
                 if invoice.move_type not in ('out_invoice', 'out_refund'):
+                    continue
+
+                # --- FILTRO CLAVE: Solo procesar partials de líneas receivable ---
+                # La línea de la factura en el partial debe ser receivable
+                invoice_line = debit_move if debit_move.move_id == invoice else credit_move
+                if invoice_line.account_id.account_type != 'asset_receivable':
                     continue
 
                 is_refund = invoice.move_type == 'out_refund'
@@ -41,7 +51,8 @@ class AccountPartialReconcile(models.Model):
                 if invoice_currency == company_currency:
                     amount_reconciled_inv_currency = rec.amount
                 else:
-                    if rec.debit_move_id.move_id in (invoice, invoice_origin):
+                    # Usar amount_currency de la línea de la factura
+                    if invoice_line == debit_move:
                         amount_reconciled_inv_currency = (
                             abs(rec.debit_amount_currency)
                             if hasattr(rec, 'debit_amount_currency') and rec.debit_amount_currency
@@ -60,7 +71,6 @@ class AccountPartialReconcile(models.Model):
 
                 payment_ratio = min(amount_reconciled_inv_currency / invoice_total, 1.0)
 
-                # Base sin impuestos en MXN
                 invoice_untaxed_mxn = abs(invoice_origin.amount_untaxed_signed)
                 paid_base_mxn = invoice_untaxed_mxn * payment_ratio
 
@@ -115,7 +125,6 @@ class AccountPartialReconcile(models.Model):
                     best_inv_line = so_inv_lines[:1] if so_inv_lines else invoice_origin.invoice_line_ids[:1]
 
                     for rule in so.commission_rule_ids:
-                        # Anti-duplicado
                         if CommissionMove.search_count([
                             ('partial_reconcile_id', '=', rec.id),
                             ('partner_id', '=', rule.partner_id.id),
@@ -123,7 +132,6 @@ class AccountPartialReconcile(models.Model):
                         ], limit=1):
                             continue
 
-                        # Monto de la regla en MXN
                         if rule.calculation_base == 'manual':
                             rule_amount_mxn = rule.currency_id._convert(
                                 rule.fixed_amount, company_currency, company,
@@ -170,5 +178,5 @@ class AccountPartialReconcile(models.Model):
     @api.model_create_multi
     def create(self, vals_list):
         res = super().create(vals_list)
-        res._create_commission_moves()
+        res.sudo()._create_commission_moves()
         return res
