@@ -41,7 +41,7 @@
                         <div class="mt-4 mb-3" style="border-left: 6px solid #000; padding-left: 10px; background-color: #f8f9fa; padding-top:8px; padding-bottom:8px;">
                             <span style="font-size: 15px; font-weight: bold; color: #212529; text-transform: uppercase;">
                                 <i class="fa fa-user-circle-o mr-2" style="opacity: 0.6;"></i>
-                                <span t-field="group['partner'].name"/>
+                                <span t-esc="group['partner'].name"/>
                             </span>
                         </div>
 
@@ -59,7 +59,7 @@
                                     </th>
                                     <th class="text-center align-middle"
                                         style="width: 13%; padding: 8px; font-weight: 600; color: #FFFFFF !important; font-size: 9px;">
-                                        EMISIÓN FACTURA
+                                        FECHA FACTURA
                                     </th>
                                     <th class="align-middle"
                                         style="width: 14%; padding: 8px; font-weight: 600; color: #FFFFFF !important; font-size: 9px;">
@@ -79,7 +79,7 @@
                                     </th>
                                     <th class="text-right align-middle"
                                         style="width: 12%; padding: 8px; font-weight: 600; color: #FFFFFF !important; font-size: 9px;">
-                                        MONTO FACT. (SIN IVA)
+                                        $ FACT. (SIN IVA)
                                     </th>
                                     <th class="text-center align-middle"
                                         style="width: 10%; padding: 8px; font-weight: 600; color: #FFFFFF !important; font-size: 9px;">
@@ -145,16 +145,16 @@
                             <tfoot>
                                 <tr style="background-color: #f0f0f0;">
                                     <td colspan="6" class="text-right align-middle text-uppercase" style="padding: 10px; font-weight: bold; color: #555;">
-                                        Totales <span t-field="group['partner'].name"/>:
+                                        Totales <span t-esc="group['partner'].name"/>:
                                     </td>
                                     <td class="text-right align-middle" style="padding: 10px; font-weight: bold;">
                                         <span t-esc="group['total_base']" 
-                                              t-options='{"widget": "monetary", "display_currency": group["partner"].currency_id}'/>
+                                              t-options='{"widget": "monetary", "display_currency": group["currency"]}'/>
                                     </td>
                                     <td class="align-middle"></td>
                                     <td class="text-right align-middle" style="padding: 10px; background-color: #1a1a1a; color: #fff; font-size: 12px; font-weight: bold;">
                                         <span t-esc="group['total_commission']" 
-                                              t-options='{"widget": "monetary", "display_currency": group["partner"].currency_id}'/>
+                                              t-options='{"widget": "monetary", "display_currency": group["currency"]}'/>
                                     </td>
                                 </tr>
                             </tfoot>

@@ -1,6 +1,9 @@
 id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
-access_sale_commission_rule,sale.commission.rule,model_sale_commission_rule,base.group_user,1,1,1,1
-access_commission_move,commission.move,model_commission_move,base.group_user,1,1,1,1
-access_commission_settlement,commission.settlement,model_commission_settlement,base.group_user,1,1,1,1
-access_commission_make_invoice,commission.make.invoice,model_commission_make_invoice,base.group_user,1,1,1,1
-access_commission_report_wizard,commission.report.wizard,model_commission_report_wizard,group_commission_manager,1,1,1,1
+access_commission_move_manager,commission.move.manager,model_commission_move,om_advanced_commission.group_commission_manager,1,1,1,1
+access_commission_move_user,commission.move.user,model_commission_move,base.group_user,1,0,0,0
+access_commission_settlement_manager,commission.settlement.manager,model_commission_settlement,om_advanced_commission.group_commission_manager,1,1,1,1
+access_commission_settlement_user,commission.settlement.user,model_commission_settlement,base.group_user,1,0,0,0
+access_commission_rule_manager,sale.commission.rule.manager,model_sale_commission_rule,om_advanced_commission.group_commission_manager,1,1,1,1
+access_commission_rule_user,sale.commission.rule.user,model_sale_commission_rule,base.group_user,1,1,1,1
+access_commission_make_invoice,commission.make.invoice,model_commission_make_invoice,om_advanced_commission.group_commission_manager,1,1,1,0
+access_commission_report_wizard,commission.report.wizard,model_commission_report_wizard,om_advanced_commission.group_commission_manager,1,1,1,0

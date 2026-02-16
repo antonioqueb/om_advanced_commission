@@ -3,148 +3,169 @@ import logging
 
 _logger = logging.getLogger(__name__)
 
+
 class AccountPartialReconcile(models.Model):
     _inherit = 'account.partial.reconcile'
 
     def _create_commission_moves(self):
-        """ 
-        Detecta pagos y calcula comisión. 
-        CORRECCIÓN: La base 'base_amount_paid' ahora se calcula sobre el Subtotal (Untaxed)
-        para que los reportes de porcentaje sean consistentes (ej. 2.5% real).
+        """
+        Crea commission.move por cada partial reconcile.
+        Robusto ante: multi-moneda, multi-SO por factura, duplicados, refunds.
         """
         CommissionMove = self.env['commission.move']
-        
+
         for rec in self:
             try:
-                # 1. Identificar factura (debit) y pago (credit) de forma segura
+                # --- 1. Identificar factura y pago ---
                 invoice = rec.debit_move_id.move_id
                 payment = rec.credit_move_id.move_id
-                amount_reconciled_currency_invoice = rec.amount # Monto en moneda de la factura/pago
-                is_refund = False
 
-                if invoice.move_type not in ['out_invoice', 'out_refund']:
-                    invoice = rec.credit_move_id.move_id
-                    payment = rec.debit_move_id.move_id
-                
-                if invoice.move_type == 'out_refund':
-                    is_refund = True
-                    invoice_origin = invoice.reversed_entry_id or invoice
-                else:
-                    invoice_origin = invoice
+                if invoice.move_type not in ('out_invoice', 'out_refund'):
+                    invoice, payment = payment, invoice
 
-                if invoice_origin.move_type not in ['out_invoice', 'out_refund']:
+                # Si ninguno es factura de cliente, skip
+                if invoice.move_type not in ('out_invoice', 'out_refund'):
                     continue
 
-                # 2. Buscar Ventas relacionadas
-                sale_line_ids = invoice_origin.invoice_line_ids.mapped('sale_line_ids')
-                sale_orders = sale_line_ids.mapped('order_id')
-                
-                if not sale_orders:
-                    sale_orders = self.env['sale.order'].search([('invoice_ids', 'in', invoice_origin.id)])
-                    if not sale_orders:
-                        continue
+                is_refund = invoice.move_type == 'out_refund'
+                invoice_origin = invoice.reversed_entry_id if is_refund and invoice.reversed_entry_id else invoice
 
-                # 3. Preparar datos en Moneda de la Compañía (MXN)
+                if invoice_origin.move_type not in ('out_invoice', 'out_refund'):
+                    continue
+
                 company = invoice_origin.company_id
                 company_currency = company.currency_id
-                
-                # --- CAMBIO IMPORTANTE: BASES SIN IMPUESTOS ---
-                # Obtenemos el Subtotal (Untaxed) del asiento contable en MXN
-                invoice_untaxed_mxn = abs(invoice_origin.amount_untaxed_signed)
-                
-                # Necesitamos el total original solo para calcular el % de cobertura del pago
-                invoice_total_original = invoice_origin.amount_total
-                
-                # Evitar división por cero
-                if invoice_total_original == 0:
+
+                # --- 2. Monto reconciliado en moneda de la factura ---
+                invoice_currency = invoice_origin.currency_id
+                if invoice_currency == company_currency:
+                    amount_reconciled_inv_currency = rec.amount
+                else:
+                    if rec.debit_move_id.move_id in (invoice, invoice_origin):
+                        amount_reconciled_inv_currency = (
+                            abs(rec.debit_amount_currency)
+                            if hasattr(rec, 'debit_amount_currency') and rec.debit_amount_currency
+                            else rec.amount
+                        )
+                    else:
+                        amount_reconciled_inv_currency = (
+                            abs(rec.credit_amount_currency)
+                            if hasattr(rec, 'credit_amount_currency') and rec.credit_amount_currency
+                            else rec.amount
+                        )
+
+                invoice_total = invoice_origin.amount_total
+                if invoice_total == 0:
                     continue
 
-                # Calcular RATIO: Qué porcentaje de la factura total se está pagando
-                # Ej: Factura 116, Pago 58 -> Ratio 0.5 (50%)
-                payment_ratio = amount_reconciled_currency_invoice / invoice_total_original
+                payment_ratio = min(amount_reconciled_inv_currency / invoice_total, 1.0)
 
-                # Calcular BASE PAGADA REAL (Sobre Subtotal)
-                # Ej: Subtotal 100 * 0.5 = 50 pesos de base comisionable
+                # Base sin impuestos en MXN
+                invoice_untaxed_mxn = abs(invoice_origin.amount_untaxed_signed)
                 paid_base_mxn = invoice_untaxed_mxn * payment_ratio
 
+                # --- 3. SOs relacionadas ---
+                sale_lines = invoice_origin.invoice_line_ids.mapped('sale_line_ids')
+                sale_orders = sale_lines.mapped('order_id').filtered(lambda so: so.commission_rule_ids)
+
+                if not sale_orders:
+                    fallback_sos = self.env['sale.order'].search([
+                        ('invoice_ids', 'in', invoice_origin.id)
+                    ]).filtered(lambda so: so.commission_rule_ids)
+                    if not fallback_sos:
+                        continue
+                    sale_orders = fallback_sos
+
+                # --- 4. Peso de cada SO dentro de la factura ---
+                so_weights = {}
+                total_weight = 0.0
                 for so in sale_orders:
-                    if not so.commission_rule_ids:
-                        continue
-                    
-                    # Convertir el total de la SO a MXN (para mantener la proporción correcta)
-                    so_total_mxn = so.currency_id._convert(
-                        so.amount_total,
-                        company_currency,
-                        so.company_id,
-                        so.date_order or fields.Date.today()
+                    so_inv_lines = invoice_origin.invoice_line_ids.filtered(
+                        lambda l, _so=so: l.sale_line_ids & _so.order_line
                     )
+                    weight = sum(abs(l.balance) for l in so_inv_lines) if so_inv_lines else 0.0
 
-                    # Nota: Para el cálculo del dinero de la comisión, seguimos usando los totales
-                    # para prorratear correctamente contra el total de la orden, pero la base visual
-                    # será 'paid_base_mxn'.
-                    
-                    if so_total_mxn == 0:
-                        continue
-
-                    # Calcular proporción sobre la venta total en MXN
-                    # Aquí usamos el monto pagado (con iva implícito en el ratio) vs total venta
-                    # para saber cuánto de la venta global representa este pago.
-                    # Sin embargo, para visualizar en reporte usaremos paid_base_mxn.
-                    
-                    # Reconstruimos el monto pagado TOTAL en MXN solo para el ratio de la regla
-                    paid_total_mxn = abs(invoice_origin.amount_total_signed) * payment_ratio
-                    final_ratio_mxn = paid_total_mxn / so_total_mxn
-                    
-                    sign = -1 if is_refund else 1
-
-                    _logger.info(f"[COMMISSION] Fac: {invoice.name} | Base s/Imp: {paid_base_mxn}")
-
-                    for rule in so.commission_rule_ids:
-                        commission_amount_mxn = 0.0
-                        
-                        # Convertir el estimado de la regla a MXN
-                        rule_estimated_mxn = so.currency_id._convert(
-                            rule.estimated_amount,
-                            company_currency,
-                            so.company_id,
+                    if weight == 0.0:
+                        weight = so.currency_id._convert(
+                            so.amount_total, company_currency, company,
                             so.date_order or fields.Date.today()
                         )
-                        
-                        # Convertir monto fijo manual a MXN si fuera necesario
-                        rule_fixed_mxn = 0.0
+
+                    so_weights[so.id] = weight
+                    total_weight += weight
+
+                if total_weight == 0:
+                    continue
+
+                # --- 5. Payment real ---
+                payment_rec = self.env['account.payment'].search(
+                    [('move_id', '=', payment.id)], limit=1
+                )
+
+                sign = -1 if is_refund else 1
+
+                # --- 6. Crear commission.move por SO y regla ---
+                for so in sale_orders:
+                    so_ratio = so_weights[so.id] / total_weight
+                    so_paid_base = paid_base_mxn * so_ratio
+
+                    so_inv_lines = invoice_origin.invoice_line_ids.filtered(
+                        lambda l, _so=so: l.sale_line_ids & _so.order_line
+                    )
+                    best_inv_line = so_inv_lines[:1] if so_inv_lines else invoice_origin.invoice_line_ids[:1]
+
+                    for rule in so.commission_rule_ids:
+                        # Anti-duplicado
+                        if CommissionMove.search_count([
+                            ('partial_reconcile_id', '=', rec.id),
+                            ('partner_id', '=', rule.partner_id.id),
+                            ('sale_order_id', '=', so.id),
+                        ], limit=1):
+                            continue
+
+                        # Monto de la regla en MXN
                         if rule.calculation_base == 'manual':
-                            rule_fixed_mxn = rule.currency_id._convert(
-                                rule.fixed_amount,
-                                company_currency,
-                                so.company_id,
+                            rule_amount_mxn = rule.currency_id._convert(
+                                rule.fixed_amount, company_currency, company,
+                                so.date_order or fields.Date.today()
+                            )
+                        else:
+                            rule_amount_mxn = so.currency_id._convert(
+                                rule.estimated_amount, company_currency, company,
                                 so.date_order or fields.Date.today()
                             )
 
-                        # Cálculo final en MXN
-                        if rule.calculation_base == 'manual':
-                            commission_amount_mxn = rule_fixed_mxn * final_ratio_mxn
-                        else:
-                            commission_amount_mxn = rule_estimated_mxn * final_ratio_mxn
+                        so_total_mxn = so.currency_id._convert(
+                            so.amount_total, company_currency, company,
+                            so.date_order or fields.Date.today()
+                        )
+                        if so_total_mxn == 0:
+                            continue
 
-                        if abs(commission_amount_mxn) > 0.01:
-                            CommissionMove.create({
-                                'partner_id': rule.partner_id.id,
-                                'sale_order_id': so.id,
-                                'invoice_line_id': invoice_origin.invoice_line_ids[0].id if invoice_origin.invoice_line_ids else False,
-                                'payment_id': self.env['account.payment'].search([('move_id', '=', payment.id)], limit=1).id,
-                                'amount': commission_amount_mxn * sign,
-                                
-                                # AQUI EL CAMBIO: Guardamos la base sin impuestos
-                                'base_amount_paid': paid_base_mxn * sign,
-                                
-                                'currency_id': company_currency.id, # MXN
-                                'is_refund': is_refund,
-                                'state': 'draft',
-                                'name': f"Cmsn: {invoice.name} ({round(final_ratio_mxn*100, 1)}%)"
-                            })
+                        paid_total_mxn_so = abs(invoice_origin.amount_total_signed) * payment_ratio * so_ratio
+                        final_ratio = paid_total_mxn_so / so_total_mxn
+                        commission_amount = rule_amount_mxn * final_ratio * sign
+
+                        if abs(commission_amount) < 0.01:
+                            continue
+
+                        CommissionMove.create({
+                            'partner_id': rule.partner_id.id,
+                            'sale_order_id': so.id,
+                            'invoice_line_id': best_inv_line.id if best_inv_line else False,
+                            'payment_id': payment_rec.id if payment_rec else False,
+                            'partial_reconcile_id': rec.id,
+                            'company_id': company.id,
+                            'amount': commission_amount,
+                            'base_amount_paid': so_paid_base * sign,
+                            'currency_id': company_currency.id,
+                            'is_refund': is_refund,
+                            'state': 'draft',
+                            'name': f"Cmsn: {invoice.name} / {so.name} ({round(final_ratio * 100, 1)}%)",
+                        })
 
             except Exception as e:
-                _logger.error(f"[COMMISSION] Error crítico ID {rec.id}: {str(e)}")
+                _logger.error(f"[COMMISSION] Error en partial {rec.id}: {e}", exc_info=True)
 
     @api.model_create_multi
     def create(self, vals_list):
