@@ -57,11 +57,4 @@
     <menuitem id="menu_commission_settlement" name="Liquidaciones"
               parent="menu_commission_root" action="action_commission_settlement"
               sequence="20" groups="om_advanced_commission.group_commission_manager"/>
-
-    <!-- Reporte de comisiones (todos los vendedores acceden) -->
-    <menuitem id="menu_commission_report_sales"
-              name="Mis Comisiones"
-              parent="menu_commission_root"
-              action="action_commission_report_wizard"
-              sequence="1"/>
 </odoo>
