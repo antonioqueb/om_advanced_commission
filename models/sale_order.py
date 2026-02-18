@@ -1,5 +1,5 @@
 from odoo import models, fields, api
-from odoo.exceptions import UserError, ValidationError
+from odoo.exceptions import UserError
 import logging
 
 _logger = logging.getLogger(__name__)
@@ -53,12 +53,19 @@ class SaleOrder(models.Model):
                  'commission_authorization_id.state')
     def _compute_commission_requires_auth(self):
         for so in self:
-            needs = so.total_seller_percent > SELLER_MAX_PCT
-            auth_ok = (
-                so.commission_authorization_id and
-                so.commission_authorization_id.state == 'approved'
-            )
-            so.commission_requires_auth = needs and not auth_ok
+            if so.total_seller_percent <= SELLER_MAX_PCT:
+                so.commission_requires_auth = False
+                continue
+            # Buscar en BD directamente, no solo en el campo
+            auth_ok = so._has_approved_auth()
+            so.commission_requires_auth = not auth_ok
+
+    def _has_approved_auth(self):
+        """Verifica en BD si existe autorización aprobada para esta SO."""
+        return bool(self.env['commission.authorization'].sudo().search_count([
+            ('sale_order_id', '=', self.id),
+            ('state', '=', 'approved'),
+        ], limit=1))
 
     @api.onchange('seller1_id', 'seller2_id', 'seller3_id',
                   'seller1_percent', 'seller2_percent', 'seller3_percent')
@@ -66,17 +73,15 @@ class SaleOrder(models.Model):
         self._sync_seller_rules()
         total = (self.seller1_percent or 0) + (self.seller2_percent or 0) + (self.seller3_percent or 0)
         if total > SELLER_MAX_PCT:
-            auth = self.commission_authorization_id
-            if not auth or auth.state != 'approved':
-                return {
-                    'warning': {
-                        'title': 'Autorización Requerida',
-                        'message': (
-                            f"El porcentaje total de vendedores ({total}%) supera el límite de "
-                            f"{SELLER_MAX_PCT}%. Necesitas solicitar autorización antes de recalcular comisiones."
-                        )
-                    }
+            return {
+                'warning': {
+                    'title': 'Autorización Requerida',
+                    'message': (
+                        f"El porcentaje total de vendedores ({total}%) supera el límite de "
+                        f"{SELLER_MAX_PCT}%. Necesitas solicitar autorización antes de recalcular comisiones."
+                    )
                 }
+            }
 
     def _sync_seller_rules(self):
         non_internal_cmds = []
@@ -141,13 +146,10 @@ class SaleOrder(models.Model):
 
     def action_recalc_commissions(self):
         self.ensure_one()
-        # Validar autorización AQUÍ, no al guardar
+
+        # Verificar directamente en BD, ignorando caché
         if self.total_seller_percent > SELLER_MAX_PCT:
-            auth_ok = (
-                self.commission_authorization_id and
-                self.commission_authorization_id.state == 'approved'
-            )
-            if not auth_ok:
+            if not self._has_approved_auth():
                 raise UserError(
                     f"El porcentaje total de vendedores ({self.total_seller_percent}%) supera el límite de "
                     f"{SELLER_MAX_PCT}%. Obtén una autorización aprobada antes de recalcular."
@@ -158,7 +160,9 @@ class SaleOrder(models.Model):
         if not self.commission_rule_ids:
             return self._return_notification("Faltan definir las Reglas de Comisión.", "danger")
 
-        invoices = self.invoice_ids.filtered(lambda x: x.state == 'posted' and x.payment_state != 'not_paid')
+        invoices = self.invoice_ids.filtered(
+            lambda x: x.state == 'posted' and x.payment_state != 'not_paid'
+        )
         if not invoices:
             return self._return_notification("Sin facturas pagadas.", "warning")
 
