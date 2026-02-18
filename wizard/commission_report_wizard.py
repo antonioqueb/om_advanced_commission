@@ -11,10 +11,7 @@ class CommissionReportWizard(models.TransientModel):
     date_to = fields.Date(string='Hasta', required=True)
     partner_ids = fields.Many2many('res.partner', string='Vendedores',
                                    help="Dejar vacío para imprimir todos")
-    allow_previous_months = fields.Boolean(
-        string='Ver meses anteriores',
-        compute='_compute_allow_previous_months'
-    )
+    allow_previous_months = fields.Boolean(string='Ver meses anteriores', default=False)
 
     @api.model
     def default_get(self, fields_list):
@@ -22,17 +19,12 @@ class CommissionReportWizard(models.TransientModel):
         today = date.today()
         res['date_from'] = today.replace(day=1)
         res['date_to'] = today
-        # Restringir partner para vendedores normales
-        if not self.env.user.has_group('om_advanced_commission.group_commission_authorizer'):
+        is_auth = self.env.user.has_group('om_advanced_commission.group_commission_authorizer')
+        res['allow_previous_months'] = is_auth
+        if not is_auth:
             partner = self.env.user.partner_id
             res['partner_ids'] = [(6, 0, [partner.id])]
         return res
-
-    @api.depends()
-    def _compute_allow_previous_months(self):
-        is_auth = self.env.user.has_group('om_advanced_commission.group_commission_authorizer')
-        for rec in self:
-            rec.allow_previous_months = is_auth
 
     @api.constrains('date_from', 'date_to')
     def _check_dates(self):
@@ -50,7 +42,6 @@ class CommissionReportWizard(models.TransientModel):
                     raise UserError("La fecha 'Hasta' no puede ser mayor a hoy.")
 
     def action_print_report(self):
-        # Verificar que vendedores no intenten ver otros partners
         if not self.env.user.has_group('om_advanced_commission.group_commission_authorizer'):
             partner = self.env.user.partner_id
             if self.partner_ids and partner not in self.partner_ids:

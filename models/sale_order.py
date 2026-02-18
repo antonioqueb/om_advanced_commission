@@ -13,22 +13,17 @@ class SaleOrder(models.Model):
     commission_rule_ids = fields.One2many('sale.commission.rule', 'sale_order_id', string='Reglas de Comisión')
     x_project_id = fields.Many2one('project.project', string='Proyecto (Job Name)')
 
-    # Vendedores 1, 2, 3
-    seller1_id = fields.Many2one('res.partner', string='Vendedor 1',
-                                  domain=[('is_company', '=', False)])
+    seller1_id = fields.Many2one('res.partner', string='Vendedor 1', domain=[('is_company', '=', False)])
     seller1_percent = fields.Float(string='% Vendedor 1', default=0.0)
-    seller2_id = fields.Many2one('res.partner', string='Vendedor 2',
-                                  domain=[('is_company', '=', False)])
+    seller2_id = fields.Many2one('res.partner', string='Vendedor 2', domain=[('is_company', '=', False)])
     seller2_percent = fields.Float(string='% Vendedor 2', default=0.0)
-    seller3_id = fields.Many2one('res.partner', string='Vendedor 3',
-                                  domain=[('is_company', '=', False)])
+    seller3_id = fields.Many2one('res.partner', string='Vendedor 3', domain=[('is_company', '=', False)])
     seller3_percent = fields.Float(string='% Vendedor 3', default=0.0)
 
     total_seller_percent = fields.Float(
         string='% Total Vendedores', compute='_compute_total_seller_percent', store=True)
     total_commission_percent = fields.Float(
-        string='% Total Comisionado', compute='_compute_total_commission_percent', store=True,
-        help='Suma de todos los porcentajes de comisión de todos los roles en la orden.')
+        string='% Total Comisionado', compute='_compute_total_commission_percent', store=True)
     commission_requires_auth = fields.Boolean(
         string='Requiere Autorización', compute='_compute_commission_requires_auth', store=True)
     commission_authorization_id = fields.Many2one(
@@ -68,9 +63,7 @@ class SaleOrder(models.Model):
     @api.onchange('seller1_id', 'seller2_id', 'seller3_id',
                   'seller1_percent', 'seller2_percent', 'seller3_percent')
     def _onchange_sellers(self):
-        """Sincroniza los campos de vendedor con commission_rule_ids."""
         self._sync_seller_rules()
-        # Advertencia si supera 2.5% sin autorización
         total = (self.seller1_percent or 0) + (self.seller2_percent or 0) + (self.seller3_percent or 0)
         if total > SELLER_MAX_PCT:
             auth = self.commission_authorization_id
@@ -80,37 +73,67 @@ class SaleOrder(models.Model):
                         'title': 'Autorización Requerida',
                         'message': (
                             f"El porcentaje total de vendedores ({total}%) supera el límite de "
-                            f"{SELLER_MAX_PCT}%. Necesitas solicitar autorización para guardar."
+                            f"{SELLER_MAX_PCT}%. Necesitas solicitar autorización antes de guardar."
                         )
                     }
                 }
 
     def _sync_seller_rules(self):
-        """Mantiene sincronizadas las reglas internas con los campos seller1/2/3."""
-        # Eliminar reglas internas existentes
-        internal_rules = self.commission_rule_ids.filtered(lambda r: r.role_type == 'internal')
-        internal_rules.unlink()
+        """
+        Reconstruye las reglas internas usando solo comandos ORM (seguro en onchange y en write).
+        Elimina internas existentes y recrea según seller1/2/3.
+        """
+        # Separar reglas no-internas que ya existen (persistidas)
+        non_internal_cmds = []
+        for rule in self.commission_rule_ids:
+            if rule.role_type != 'internal':
+                if rule.id and isinstance(rule.id, int):
+                    non_internal_cmds.append((4, rule.id))
 
-        new_rules = []
+        # Construir nuevas reglas internas
+        new_internal_cmds = []
         for partner, pct in [
             (self.seller1_id, self.seller1_percent),
             (self.seller2_id, self.seller2_percent),
             (self.seller3_id, self.seller3_percent),
         ]:
             if partner and pct:
-                new_rules.append((0, 0, {
+                new_internal_cmds.append((0, 0, {
                     'partner_id': partner.id,
                     'role_type': 'internal',
                     'calculation_base': 'amount_untaxed',
                     'percent': pct,
                 }))
-        self.commission_rule_ids = new_rules + [
-            (4, r.id) for r in self.commission_rule_ids.filtered(lambda r: r.role_type != 'internal')
-        ]
+
+        # Limpiar todas y reconstruir
+        self.commission_rule_ids = [(5, 0, 0)] + new_internal_cmds + non_internal_cmds
+
+    def write(self, vals):
+        res = super().write(vals)
+        seller_fields = {'seller1_id', 'seller2_id', 'seller3_id',
+                         'seller1_percent', 'seller2_percent', 'seller3_percent'}
+        if seller_fields & set(vals.keys()):
+            for so in self:
+                # En write sí podemos hacer unlink directo
+                old_internal = so.commission_rule_ids.filtered(lambda r: r.role_type == 'internal')
+                old_internal.unlink()
+                for partner, pct in [
+                    (so.seller1_id, so.seller1_percent),
+                    (so.seller2_id, so.seller2_percent),
+                    (so.seller3_id, so.seller3_percent),
+                ]:
+                    if partner and pct:
+                        self.env['sale.commission.rule'].create({
+                            'sale_order_id': so.id,
+                            'partner_id': partner.id,
+                            'role_type': 'internal',
+                            'calculation_base': 'amount_untaxed',
+                            'percent': pct,
+                        })
+        return res
 
     def action_request_commission_auth(self):
         self.ensure_one()
-        total = self.total_seller_percent
         return {
             'type': 'ir.actions.act_window',
             'res_model': 'commission.authorization',
@@ -118,7 +141,7 @@ class SaleOrder(models.Model):
             'target': 'new',
             'context': {
                 'default_sale_order_id': self.id,
-                'default_requested_percent': total,
+                'default_requested_percent': self.total_seller_percent,
                 'default_current_percent': SELLER_MAX_PCT,
                 'default_requested_by': self.env.user.id,
             }
@@ -135,12 +158,8 @@ class SaleOrder(models.Model):
         if not invoices:
             return self._return_notification("Sin facturas pagadas.", "warning")
 
-        old_drafts = CommissionMove.search([
-            ('sale_order_id', '=', self.id),
-            ('state', '=', 'draft'),
-        ])
-        if old_drafts:
-            old_drafts.unlink()
+        old_drafts = CommissionMove.search([('sale_order_id', '=', self.id), ('state', '=', 'draft')])
+        old_drafts.unlink()
 
         created_count = 0
         for inv in invoices:
@@ -164,12 +183,7 @@ class SaleOrder(models.Model):
         return {
             'type': 'ir.actions.client',
             'tag': 'display_notification',
-            'params': {
-                'title': 'Gestión de Comisiones',
-                'message': message,
-                'type': type,
-                'sticky': False,
-            }
+            'params': {'title': 'Gestión de Comisiones', 'message': message, 'type': type, 'sticky': False}
         }
 
 

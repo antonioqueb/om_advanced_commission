@@ -5,7 +5,6 @@
         <field name="inherit_id" ref="sale.view_order_form"/>
         <field name="arch" type="xml">
 
-            <!-- Botones en cabecera -->
             <xpath expr="//header" position="inside">
                 <button name="action_recalc_commissions"
                         string="Recalcular Comisiones"
@@ -20,11 +19,9 @@
                         invisible="not commission_requires_auth"/>
             </xpath>
 
-            <!-- Pestaña de Gestión de Comisiones -->
             <xpath expr="//notebook" position="inside">
                 <page string="Gestión de Comisiones" name="commissions_rules">
 
-                    <!-- Sección Vendedores -->
                     <group string="Vendedores (máx. 2.5% total sin autorización)">
                         <group>
                             <field name="seller1_id"/>
@@ -38,24 +35,18 @@
                                    invisible="not seller3_id"/>
                         </group>
                         <group>
-                            <field name="total_seller_percent" readonly="1"
-                                   decoration-danger="total_seller_percent &gt; 2.5"
-                                   widget="percentage"/>
-                            <field name="total_commission_percent" readonly="1"
-                                   string="% Total Comisionado" widget="percentage"/>
+                            <field name="total_seller_percent" readonly="1"/>
+                            <field name="total_commission_percent" readonly="1" string="% Total Comisionado"/>
                             <field name="commission_requires_auth" readonly="1"/>
                             <field name="commission_authorization_id" readonly="1"
                                    invisible="not commission_authorization_id"/>
                         </group>
                     </group>
 
-                    <!-- Otras comisiones (arquitecto, constructora, referidor) -->
                     <separator string="Otras Comisiones (sin restricción de porcentaje)"/>
-                    <field name="commission_rule_ids"
-                           domain="[('role_type', '!=', 'internal')]">
+                    <field name="commission_rule_ids" domain="[('role_type', '!=', 'internal')]">
                         <list string="Reglas de Comisión" editable="bottom">
-                            <field name="role_type"
-                                   domain="[('role_type', '!=', 'internal')]"/>
+                            <field name="role_type"/>
                             <field name="partner_id"/>
                             <field name="calculation_base"/>
                             <field name="percent" invisible="calculation_base == 'manual'"/>
@@ -67,7 +58,6 @@
                 </page>
             </xpath>
 
-            <!-- Checkbox en líneas para exclusión -->
             <xpath expr="//field[@name='order_line']/list//field[@name='price_unit']" position="after">
                 <field name="no_commission" optional="hide"/>
             </xpath>
