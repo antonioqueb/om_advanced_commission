@@ -1,5 +1,5 @@
 from odoo import models, fields, api
-from odoo.exceptions import UserError
+from odoo.exceptions import UserError, ValidationError
 import logging
 
 _logger = logging.getLogger(__name__)
@@ -73,24 +73,18 @@ class SaleOrder(models.Model):
                         'title': 'Autorización Requerida',
                         'message': (
                             f"El porcentaje total de vendedores ({total}%) supera el límite de "
-                            f"{SELLER_MAX_PCT}%. Necesitas solicitar autorización antes de guardar."
+                            f"{SELLER_MAX_PCT}%. Necesitas solicitar autorización antes de recalcular comisiones."
                         )
                     }
                 }
 
     def _sync_seller_rules(self):
-        """
-        Reconstruye las reglas internas usando solo comandos ORM (seguro en onchange y en write).
-        Elimina internas existentes y recrea según seller1/2/3.
-        """
-        # Separar reglas no-internas que ya existen (persistidas)
         non_internal_cmds = []
         for rule in self.commission_rule_ids:
             if rule.role_type != 'internal':
                 if rule.id and isinstance(rule.id, int):
                     non_internal_cmds.append((4, rule.id))
 
-        # Construir nuevas reglas internas
         new_internal_cmds = []
         for partner, pct in [
             (self.seller1_id, self.seller1_percent),
@@ -105,7 +99,6 @@ class SaleOrder(models.Model):
                     'percent': pct,
                 }))
 
-        # Limpiar todas y reconstruir
         self.commission_rule_ids = [(5, 0, 0)] + new_internal_cmds + non_internal_cmds
 
     def write(self, vals):
@@ -114,7 +107,6 @@ class SaleOrder(models.Model):
                          'seller1_percent', 'seller2_percent', 'seller3_percent'}
         if seller_fields & set(vals.keys()):
             for so in self:
-                # En write sí podemos hacer unlink directo
                 old_internal = so.commission_rule_ids.filtered(lambda r: r.role_type == 'internal')
                 old_internal.unlink()
                 for partner, pct in [
@@ -149,6 +141,18 @@ class SaleOrder(models.Model):
 
     def action_recalc_commissions(self):
         self.ensure_one()
+        # Validar autorización AQUÍ, no al guardar
+        if self.total_seller_percent > SELLER_MAX_PCT:
+            auth_ok = (
+                self.commission_authorization_id and
+                self.commission_authorization_id.state == 'approved'
+            )
+            if not auth_ok:
+                raise UserError(
+                    f"El porcentaje total de vendedores ({self.total_seller_percent}%) supera el límite de "
+                    f"{SELLER_MAX_PCT}%. Obtén una autorización aprobada antes de recalcular."
+                )
+
         CommissionMove = self.env['commission.move']
 
         if not self.commission_rule_ids:

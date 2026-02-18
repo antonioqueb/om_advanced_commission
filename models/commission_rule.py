@@ -29,7 +29,6 @@ class SaleCommissionRule(models.Model):
     estimated_amount = fields.Monetary(compute='_compute_estimated', string='Estimado Total')
     currency_id = fields.Many2one(related='sale_order_id.currency_id')
 
-    # Flag de autorización pendiente
     requires_authorization = fields.Boolean(string='Requiere Autorización', default=False, readonly=True)
     authorization_id = fields.Many2one('commission.authorization', string='Autorización', readonly=True)
 
@@ -62,30 +61,3 @@ class SaleCommissionRule(models.Model):
                 amount = base * (rule.percent / 100.0)
 
             rule.estimated_amount = amount
-
-    @api.constrains('percent', 'role_type')
-    def _check_seller_percent_authorization(self):
-        """
-        Para vendedores: el total entre todos los vendedores de la SO no puede
-        superar 2.5% sin autorización aprobada.
-        """
-        SELLER_MAX = 2.5
-        for rule in self:
-            if rule.role_type != 'internal':
-                continue
-            so = rule.sale_order_id
-            if not so:
-                continue
-            seller_rules = so.commission_rule_ids.filtered(lambda r: r.role_type == 'internal')
-            total_seller_pct = sum(seller_rules.mapped('percent'))
-            if total_seller_pct > SELLER_MAX:
-                # Verificar si existe autorización aprobada para esta SO
-                auth = self.env['commission.authorization'].search([
-                    ('sale_order_id', '=', so.id),
-                    ('state', '=', 'approved'),
-                ], limit=1)
-                if not auth:
-                    raise ValidationError(
-                        f"El porcentaje total de vendedores ({total_seller_pct}%) supera el límite de "
-                        f"{SELLER_MAX}%. Solicita autorización antes de guardar."
-                    )
