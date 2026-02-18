@@ -3,7 +3,7 @@
     'version': '19.0.1.1.0',
     'category': 'Sales/Commissions',
     'summary': 'Motor de comisiones multi-agente basado en pagos, margenes y liquidaciones.',
-    'author': 'Custom AI Solution',
+    'author': 'Alphaqueb Consulting',
     'depends': ['sale_management', 'account', 'purchase', 'project'],
     'data': [
         'security/security.xml',
@@ -12,8 +12,8 @@
         'views/res_config_settings_views.xml',
         'views/sale_order_views.xml',
         'views/commission_move_views.xml',
-        'views/commission_authorization_views.xml',
         'views/commission_settlement_views.xml',
+        'views/commission_authorization_views.xml',
         'wizard/commission_make_invoice_views.xml',
         'wizard/commission_report_wizard_views.xml',
         'wizard/commission_authorization_reject_wizard_views.xml',
