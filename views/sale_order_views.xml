@@ -4,23 +4,58 @@
         <field name="model">sale.order</field>
         <field name="inherit_id" ref="sale.view_order_form"/>
         <field name="arch" type="xml">
-            
-            <!-- Botón en la cabecera (Header) -->
+
+            <!-- Botones en cabecera -->
             <xpath expr="//header" position="inside">
-                <button name="action_recalc_commissions" 
-                        string="Recalcular Comisiones" 
-                        type="object" 
+                <button name="action_recalc_commissions"
+                        string="Recalcular Comisiones"
+                        type="object"
                         class="btn-secondary"
                         groups="om_advanced_commission.group_commission_manager"
                         invisible="state not in ['sale', 'done']"/>
+                <button name="action_request_commission_auth"
+                        string="Solicitar Autorización"
+                        type="object"
+                        class="btn-warning"
+                        invisible="not commission_requires_auth"/>
             </xpath>
 
-            <!-- Pestaña de Configuración de Reglas -->
+            <!-- Pestaña de Gestión de Comisiones -->
             <xpath expr="//notebook" position="inside">
                 <page string="Gestión de Comisiones" name="commissions_rules">
-                    <field name="commission_rule_ids">
+
+                    <!-- Sección Vendedores -->
+                    <group string="Vendedores (máx. 2.5% total sin autorización)">
+                        <group>
+                            <field name="seller1_id"/>
+                            <field name="seller1_percent" string="% Vendedor 1"
+                                   invisible="not seller1_id"/>
+                            <field name="seller2_id"/>
+                            <field name="seller2_percent" string="% Vendedor 2"
+                                   invisible="not seller2_id"/>
+                            <field name="seller3_id"/>
+                            <field name="seller3_percent" string="% Vendedor 3"
+                                   invisible="not seller3_id"/>
+                        </group>
+                        <group>
+                            <field name="total_seller_percent" readonly="1"
+                                   decoration-danger="total_seller_percent &gt; 2.5"
+                                   widget="percentage"/>
+                            <field name="total_commission_percent" readonly="1"
+                                   string="% Total Comisionado" widget="percentage"/>
+                            <field name="commission_requires_auth" readonly="1"/>
+                            <field name="commission_authorization_id" readonly="1"
+                                   invisible="not commission_authorization_id"/>
+                        </group>
+                    </group>
+
+                    <!-- Otras comisiones (arquitecto, constructora, referidor) -->
+                    <separator string="Otras Comisiones (sin restricción de porcentaje)"/>
+                    <field name="commission_rule_ids"
+                           domain="[('role_type', '!=', 'internal')]">
                         <list string="Reglas de Comisión" editable="bottom">
-                            <field name="role_type"/>
+                            <field name="role_type"
+                                   domain="[('role_type', '!=', 'internal')]"/>
                             <field name="partner_id"/>
                             <field name="calculation_base"/>
                             <field name="percent" invisible="calculation_base == 'manual'"/>
@@ -31,8 +66,8 @@
                     </field>
                 </page>
             </xpath>
-            
-            <!-- Checkbox en Líneas para exclusión -->
+
+            <!-- Checkbox en líneas para exclusión -->
             <xpath expr="//field[@name='order_line']/list//field[@name='price_unit']" position="after">
                 <field name="no_commission" optional="hide"/>
             </xpath>

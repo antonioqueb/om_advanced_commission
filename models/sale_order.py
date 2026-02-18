@@ -4,6 +4,8 @@ import logging
 
 _logger = logging.getLogger(__name__)
 
+SELLER_MAX_PCT = 2.5
+
 
 class SaleOrder(models.Model):
     _inherit = 'sale.order'
@@ -11,13 +13,120 @@ class SaleOrder(models.Model):
     commission_rule_ids = fields.One2many('sale.commission.rule', 'sale_order_id', string='Reglas de Comisión')
     x_project_id = fields.Many2one('project.project', string='Proyecto (Job Name)')
 
+    # Vendedores 1, 2, 3
+    seller1_id = fields.Many2one('res.partner', string='Vendedor 1',
+                                  domain=[('is_company', '=', False)])
+    seller1_percent = fields.Float(string='% Vendedor 1', default=0.0)
+    seller2_id = fields.Many2one('res.partner', string='Vendedor 2',
+                                  domain=[('is_company', '=', False)])
+    seller2_percent = fields.Float(string='% Vendedor 2', default=0.0)
+    seller3_id = fields.Many2one('res.partner', string='Vendedor 3',
+                                  domain=[('is_company', '=', False)])
+    seller3_percent = fields.Float(string='% Vendedor 3', default=0.0)
+
+    total_seller_percent = fields.Float(
+        string='% Total Vendedores', compute='_compute_total_seller_percent', store=True)
+    total_commission_percent = fields.Float(
+        string='% Total Comisionado', compute='_compute_total_commission_percent', store=True,
+        help='Suma de todos los porcentajes de comisión de todos los roles en la orden.')
+    commission_requires_auth = fields.Boolean(
+        string='Requiere Autorización', compute='_compute_commission_requires_auth', store=True)
+    commission_authorization_id = fields.Many2one(
+        'commission.authorization', string='Autorización Vigente', readonly=True)
+
+    @api.depends('seller1_percent', 'seller2_percent', 'seller3_percent')
+    def _compute_total_seller_percent(self):
+        for so in self:
+            so.total_seller_percent = (
+                (so.seller1_percent or 0.0) +
+                (so.seller2_percent or 0.0) +
+                (so.seller3_percent or 0.0)
+            )
+
+    @api.depends('commission_rule_ids.percent', 'commission_rule_ids.calculation_base',
+                 'seller1_percent', 'seller2_percent', 'seller3_percent')
+    def _compute_total_commission_percent(self):
+        for so in self:
+            seller_pct = so.total_seller_percent
+            other_pct = sum(
+                r.percent for r in so.commission_rule_ids
+                if r.role_type != 'internal' and r.calculation_base != 'manual'
+            )
+            so.total_commission_percent = seller_pct + other_pct
+
+    @api.depends('total_seller_percent', 'commission_authorization_id',
+                 'commission_authorization_id.state')
+    def _compute_commission_requires_auth(self):
+        for so in self:
+            needs = so.total_seller_percent > SELLER_MAX_PCT
+            auth_ok = (
+                so.commission_authorization_id and
+                so.commission_authorization_id.state == 'approved'
+            )
+            so.commission_requires_auth = needs and not auth_ok
+
+    @api.onchange('seller1_id', 'seller2_id', 'seller3_id',
+                  'seller1_percent', 'seller2_percent', 'seller3_percent')
+    def _onchange_sellers(self):
+        """Sincroniza los campos de vendedor con commission_rule_ids."""
+        self._sync_seller_rules()
+        # Advertencia si supera 2.5% sin autorización
+        total = (self.seller1_percent or 0) + (self.seller2_percent or 0) + (self.seller3_percent or 0)
+        if total > SELLER_MAX_PCT:
+            auth = self.commission_authorization_id
+            if not auth or auth.state != 'approved':
+                return {
+                    'warning': {
+                        'title': 'Autorización Requerida',
+                        'message': (
+                            f"El porcentaje total de vendedores ({total}%) supera el límite de "
+                            f"{SELLER_MAX_PCT}%. Necesitas solicitar autorización para guardar."
+                        )
+                    }
+                }
+
+    def _sync_seller_rules(self):
+        """Mantiene sincronizadas las reglas internas con los campos seller1/2/3."""
+        # Eliminar reglas internas existentes
+        internal_rules = self.commission_rule_ids.filtered(lambda r: r.role_type == 'internal')
+        internal_rules.unlink()
+
+        new_rules = []
+        for partner, pct in [
+            (self.seller1_id, self.seller1_percent),
+            (self.seller2_id, self.seller2_percent),
+            (self.seller3_id, self.seller3_percent),
+        ]:
+            if partner and pct:
+                new_rules.append((0, 0, {
+                    'partner_id': partner.id,
+                    'role_type': 'internal',
+                    'calculation_base': 'amount_untaxed',
+                    'percent': pct,
+                }))
+        self.commission_rule_ids = new_rules + [
+            (4, r.id) for r in self.commission_rule_ids.filtered(lambda r: r.role_type != 'internal')
+        ]
+
+    def action_request_commission_auth(self):
+        self.ensure_one()
+        total = self.total_seller_percent
+        return {
+            'type': 'ir.actions.act_window',
+            'res_model': 'commission.authorization',
+            'view_mode': 'form',
+            'target': 'new',
+            'context': {
+                'default_sale_order_id': self.id,
+                'default_requested_percent': total,
+                'default_current_percent': SELLER_MAX_PCT,
+                'default_requested_by': self.env.user.id,
+            }
+        }
+
     def action_recalc_commissions(self):
-        """
-        Recálculo forzado: borra drafts existentes y recrea desde partial reconciles.
-        """
         self.ensure_one()
         CommissionMove = self.env['commission.move']
-        company_currency = self.company_id.currency_id
 
         if not self.commission_rule_ids:
             return self._return_notification("Faltan definir las Reglas de Comisión.", "danger")
@@ -26,7 +135,6 @@ class SaleOrder(models.Model):
         if not invoices:
             return self._return_notification("Sin facturas pagadas.", "warning")
 
-        # Borrar drafts existentes de esta SO para recalcular limpio
         old_drafts = CommissionMove.search([
             ('sale_order_id', '=', self.id),
             ('state', '=', 'draft'),
@@ -34,7 +142,6 @@ class SaleOrder(models.Model):
         if old_drafts:
             old_drafts.unlink()
 
-        # Recolectar todos los partial reconciles de las facturas
         created_count = 0
         for inv in invoices:
             receivable_lines = inv.line_ids.filtered(
@@ -45,7 +152,6 @@ class SaleOrder(models.Model):
                 ('debit_move_id', 'in', receivable_lines.ids),
                 ('credit_move_id', 'in', receivable_lines.ids),
             ])
-            
             before_count = CommissionMove.search_count([('sale_order_id', '=', self.id)])
             partials._create_commission_moves()
             after_count = CommissionMove.search_count([('sale_order_id', '=', self.id)])

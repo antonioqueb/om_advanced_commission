@@ -10,11 +10,20 @@
                         <field name="date_to"/>
                     </group>
                     <group>
-                        <field name="partner_ids" widget="many2many_tags" placeholder="Todos los vendedores..."/>
+                        <field name="allow_previous_months" invisible="1"/>
+                        <field name="partner_ids" widget="many2many_tags"
+                               placeholder="Todos los vendedores..."
+                               invisible="not allow_previous_months"
+                               groups="om_advanced_commission.group_commission_authorizer"/>
                     </group>
                 </group>
+                <div class="alert alert-info" role="alert"
+                     invisible="allow_previous_months">
+                    Solo puedes consultar comisiones del mes en curso.
+                </div>
                 <footer>
-                    <button name="action_print_report" string="Imprimir PDF" type="object" class="btn-primary" icon="fa-print"/>
+                    <button name="action_print_report" string="Imprimir PDF" type="object"
+                            class="btn-primary" icon="fa-print"/>
                     <button string="Cancelar" special="cancel" class="btn-secondary"/>
                 </footer>
             </form>
@@ -28,10 +37,9 @@
         <field name="target">new</field>
     </record>
 
-    <!-- Agregar al menú -->
-    <menuitem id="menu_commission_report" 
-              name="Reporte PDF" 
-              parent="menu_commission_root" 
-              action="action_commission_report_wizard" 
+    <menuitem id="menu_commission_report"
+              name="Reporte PDF"
+              parent="menu_commission_root"
+              action="action_commission_report_wizard"
               sequence="30"/>
 </odoo>

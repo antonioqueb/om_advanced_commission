@@ -1,0 +1,87 @@
+<odoo>
+    <record id="view_commission_authorization_form" model="ir.ui.view">
+        <field name="name">commission.authorization.form</field>
+        <field name="model">commission.authorization</field>
+        <field name="arch" type="xml">
+            <form>
+                <header>
+                    <button name="action_submit" string="Solicitar Autorización" type="object"
+                            invisible="state != 'draft'" class="btn-primary"/>
+                    <button name="action_approve" string="Aprobar" type="object"
+                            invisible="state != 'pending'" class="btn-success"
+                            groups="om_advanced_commission.group_commission_authorizer"/>
+                    <button name="action_reject" string="Rechazar" type="object"
+                            invisible="state != 'pending'" class="btn-danger"
+                            groups="om_advanced_commission.group_commission_authorizer"/>
+                    <button name="action_reset_draft" string="Restablecer" type="object"
+                            invisible="state != 'rejected'" class="btn-secondary"
+                            groups="om_advanced_commission.group_commission_authorizer"/>
+                    <field name="state" widget="statusbar"
+                           statusbar_visible="draft,pending,approved,rejected"/>
+                </header>
+                <sheet>
+                    <div class="oe_title">
+                        <h1><field name="name" readonly="1"/></h1>
+                    </div>
+                    <group>
+                        <group string="Solicitud">
+                            <field name="sale_order_id" readonly="state != 'draft'"/>
+                            <field name="requested_by" readonly="1"/>
+                            <field name="authorizer_id"
+                                   groups="om_advanced_commission.group_commission_authorizer"/>
+                        </group>
+                        <group string="Comisión">
+                            <field name="current_percent" readonly="1"/>
+                            <field name="requested_percent"/>
+                        </group>
+                    </group>
+                    <group string="Justificación">
+                        <field name="justification" nolabel="1" colspan="2"
+                               readonly="state not in ['draft']"/>
+                    </group>
+                    <group string="Rechazo" invisible="state != 'rejected'">
+                        <field name="reject_reason" nolabel="1" colspan="2" readonly="1"/>
+                    </group>
+                </sheet>
+                <div class="oe_chatter">
+                    <field name="message_follower_ids"/>
+                    <field name="activity_ids"/>
+                    <field name="message_ids"/>
+                </div>
+            </form>
+        </field>
+    </record>
+
+    <record id="view_commission_authorization_list" model="ir.ui.view">
+        <field name="name">commission.authorization.list</field>
+        <field name="model">commission.authorization</field>
+        <field name="arch" type="xml">
+            <list string="Autorizaciones"
+                  decoration-success="state == 'approved'"
+                  decoration-danger="state == 'rejected'"
+                  decoration-warning="state == 'pending'">
+                <field name="name"/>
+                <field name="sale_order_id"/>
+                <field name="requested_by"/>
+                <field name="current_percent" string="% Límite"/>
+                <field name="requested_percent" string="% Solicitado"/>
+                <field name="state" widget="badge"
+                       decoration-success="state == 'approved'"
+                       decoration-danger="state == 'rejected'"
+                       decoration-warning="state == 'pending'"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="action_commission_authorization" model="ir.actions.act_window">
+        <field name="name">Autorizaciones de Comisión</field>
+        <field name="res_model">commission.authorization</field>
+        <field name="view_mode">list,form</field>
+    </record>
+
+    <menuitem id="menu_commission_authorization"
+              name="Autorizaciones"
+              parent="menu_commission_root"
+              action="action_commission_authorization"
+              sequence="25"/>
+</odoo>

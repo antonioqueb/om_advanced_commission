@@ -5,8 +5,10 @@
         <field name="arch" type="xml">
             <form>
                 <header>
-                    <button name="action_approve" string="Aprobar" type="object" invisible="state != 'draft'" class="btn-primary"/>
-                    <button name="action_create_bill" string="Generar Factura Proveedor" type="object" invisible="state != 'approved'" class="btn-primary"/>
+                    <button name="action_approve" string="Aprobar" type="object"
+                            invisible="state != 'draft'" class="btn-primary"/>
+                    <button name="action_create_bill" string="Generar Factura Proveedor" type="object"
+                            invisible="state != 'approved'" class="btn-primary"/>
                     <field name="state" widget="statusbar"/>
                 </header>
                 <sheet>
@@ -45,7 +47,21 @@
         <field name="view_mode">list,form</field>
     </record>
 
-    <menuitem id="menu_commission_root" name="Comisiones Pro" parent="sale.sale_menu_root" sequence="40"/>
-    <menuitem id="menu_commission_analysis" name="Movimientos Individuales" parent="menu_commission_root" action="action_commission_move" sequence="10"/>
-    <menuitem id="menu_commission_settlement" name="Liquidaciones" parent="menu_commission_root" action="action_commission_settlement" sequence="20"/>
+    <!-- Menú raíz -->
+    <menuitem id="menu_commission_root" name="Comisiones" parent="sale.sale_menu_root" sequence="40"/>
+
+    <!-- Submenús operativos (solo gestores) -->
+    <menuitem id="menu_commission_analysis" name="Movimientos Individuales"
+              parent="menu_commission_root" action="action_commission_move"
+              sequence="10" groups="om_advanced_commission.group_commission_manager"/>
+    <menuitem id="menu_commission_settlement" name="Liquidaciones"
+              parent="menu_commission_root" action="action_commission_settlement"
+              sequence="20" groups="om_advanced_commission.group_commission_manager"/>
+
+    <!-- Reporte de comisiones (todos los vendedores acceden) -->
+    <menuitem id="menu_commission_report_sales"
+              name="Mis Comisiones"
+              parent="menu_commission_root"
+              action="action_commission_report_wizard"
+              sequence="1"/>
 </odoo>
