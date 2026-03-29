@@ -14,7 +14,7 @@ class SaleOrder(models.Model):
     x_project_id = fields.Many2one('project.project', string='Proyecto (Job Name)')
 
     seller1_id = fields.Many2one('res.partner', string='Vendedor 1', domain=[('is_company', '=', False)])
-    seller1_percent = fields.Float(string='% Vendedor 1', default=0.0)
+    seller1_percent = fields.Float(string='% Vendedor 1', default=2.5)
     seller2_id = fields.Many2one('res.partner', string='Vendedor 2', domain=[('is_company', '=', False)])
     seller2_percent = fields.Float(string='% Vendedor 2', default=0.0)
     seller3_id = fields.Many2one('res.partner', string='Vendedor 3', domain=[('is_company', '=', False)])
@@ -28,6 +28,22 @@ class SaleOrder(models.Model):
         string='Requiere Autorización', compute='_compute_commission_requires_auth', store=True)
     commission_authorization_id = fields.Many2one(
         'commission.authorization', string='Autorización Vigente', readonly=True)
+
+    @api.model_create_multi
+    def create(self, vals_list):
+        for vals in vals_list:
+            if not vals.get('seller1_percent'):
+                vals.setdefault('seller1_percent', 2.5)
+        res = super().create(vals_list)
+        for so in res:
+            if not so.seller1_id and so.user_id and so.user_id.partner_id:
+                so.seller1_id = so.user_id.partner_id
+        return res
+
+    @api.onchange('user_id')
+    def _onchange_user_id_seller(self):
+        if self.user_id and self.user_id.partner_id and not self.seller1_id:
+            self.seller1_id = self.user_id.partner_id
 
     @api.depends('seller1_percent', 'seller2_percent', 'seller3_percent')
     def _compute_total_seller_percent(self):
@@ -56,7 +72,6 @@ class SaleOrder(models.Model):
             if so.total_seller_percent <= SELLER_MAX_PCT:
                 so.commission_requires_auth = False
                 continue
-            # Buscar en BD directamente, no solo en el campo
             auth_ok = so._has_approved_auth()
             so.commission_requires_auth = not auth_ok
 
@@ -147,7 +162,6 @@ class SaleOrder(models.Model):
     def action_recalc_commissions(self):
         self.ensure_one()
 
-        # Verificar directamente en BD, ignorando caché
         if self.total_seller_percent > SELLER_MAX_PCT:
             if not self._has_approved_auth():
                 raise UserError(

@@ -67,16 +67,10 @@ class AccountPartialReconcile(models.Model):
     _inherit = 'account.partial.reconcile'
 
     def _create_commission_moves(self):
-        """
-        Crea commission.move por cada partial reconcile.
-        Solo procesa partials que involucren líneas receivable de facturas de cliente.
-        """
         CommissionMove = self.env['commission.move'].sudo()
 
         for rec in self:
             try:
-                # --- 1. Identificar factura y pago ---
-                # Determinar cuál move line es de la factura
                 debit_move = rec.debit_move_id
                 credit_move = rec.credit_move_id
 
@@ -88,12 +82,13 @@ class AccountPartialReconcile(models.Model):
                     debit_move, credit_move = credit_move, debit_move
 
                 if invoice.move_type not in ('out_invoice', 'out_refund'):
+                    _logger.debug(f"[COMM] partial {rec.id}: no es factura cliente, skip")
                     continue
 
-                # --- FILTRO CLAVE: Solo procesar partials de líneas receivable ---
                 # La línea de la factura en el partial debe ser receivable
                 invoice_line = debit_move if debit_move.move_id == invoice else credit_move
                 if invoice_line.account_id.account_type != 'asset_receivable':
+                    _logger.debug(f"[COMM] partial {rec.id}: cuenta no receivable ({invoice_line.account_id.account_type}), skip")
                     continue
 
                 is_refund = invoice.move_type == 'out_refund'
@@ -104,13 +99,11 @@ class AccountPartialReconcile(models.Model):
 
                 company = invoice_origin.company_id
                 company_currency = company.currency_id
-
-                # --- 2. Monto reconciliado en moneda de la factura ---
                 invoice_currency = invoice_origin.currency_id
+
                 if invoice_currency == company_currency:
                     amount_reconciled_inv_currency = rec.amount
                 else:
-                    # Usar amount_currency de la línea de la factura
                     if invoice_line == debit_move:
                         amount_reconciled_inv_currency = (
                             abs(rec.debit_amount_currency)
@@ -129,23 +122,49 @@ class AccountPartialReconcile(models.Model):
                     continue
 
                 payment_ratio = min(amount_reconciled_inv_currency / invoice_total, 1.0)
-
                 invoice_untaxed_mxn = abs(invoice_origin.amount_untaxed_signed)
                 paid_base_mxn = invoice_untaxed_mxn * payment_ratio
 
-                # --- 3. SOs relacionadas ---
-                sale_lines = invoice_origin.invoice_line_ids.mapped('sale_line_ids')
-                sale_orders = sale_lines.mapped('order_id').filtered(lambda so: so.commission_rule_ids)
+                _logger.info(f"[COMM] partial {rec.id}: factura={invoice_origin.name}, ratio={round(payment_ratio,4)}, base_mxn={round(paid_base_mxn,2)}")
+
+                # --- Buscar SOs relacionadas ---
+                # Método 1: via líneas de factura -> sale_line_ids
+                sale_orders = self.env['sale.order'].browse()
+                try:
+                    sale_lines = invoice_origin.invoice_line_ids.mapped('sale_line_ids')
+                    if sale_lines:
+                        sale_orders = sale_lines.mapped('order_id').filtered(lambda so: so.commission_rule_ids)
+                except Exception:
+                    pass
+
+                # Método 2: via sale_order.invoice_ids (Many2many en sale.order)
+                if not sale_orders:
+                    sale_orders = self.env['sale.order'].search([
+                        ('invoice_ids', 'in', [invoice_origin.id]),
+                        ('commission_rule_ids', '!=', False),
+                    ])
+                    _logger.info(f"[COMM] partial {rec.id}: fallback SO search result: {sale_orders.mapped('name')}")
+
+                # Método 3: via líneas de la factura -> order_id en sale.order.line
+                if not sale_orders:
+                    inv_line_ids = invoice_origin.invoice_line_ids.ids
+                    if inv_line_ids:
+                        sol_ids = self.env['sale.order.line'].sudo().search([
+                            ('invoice_lines', 'in', inv_line_ids)
+                        ])
+                        if sol_ids:
+                            candidate_sos = sol_ids.mapped('order_id').filtered(lambda so: so.commission_rule_ids)
+                            if candidate_sos:
+                                sale_orders = candidate_sos
+                                _logger.info(f"[COMM] partial {rec.id}: método3 SOs: {sale_orders.mapped('name')}")
 
                 if not sale_orders:
-                    fallback_sos = self.env['sale.order'].search([
-                        ('invoice_ids', 'in', invoice_origin.id)
-                    ]).filtered(lambda so: so.commission_rule_ids)
-                    if not fallback_sos:
-                        continue
-                    sale_orders = fallback_sos
+                    _logger.warning(f"[COMM] partial {rec.id}: sin SOs con reglas de comisión, skip")
+                    continue
 
-                # --- 4. Peso de cada SO dentro de la factura ---
+                _logger.info(f"[COMM] partial {rec.id}: SOs a procesar: {sale_orders.mapped('name')}")
+
+                # --- Peso de cada SO dentro de la factura ---
                 so_weights = {}
                 total_weight = 0.0
                 for so in sale_orders:
@@ -164,16 +183,15 @@ class AccountPartialReconcile(models.Model):
                     total_weight += weight
 
                 if total_weight == 0:
+                    _logger.warning(f"[COMM] partial {rec.id}: total_weight=0, skip")
                     continue
 
-                # --- 5. Payment real ---
                 payment_rec = self.env['account.payment'].search(
                     [('move_id', '=', payment.id)], limit=1
                 )
 
                 sign = -1 if is_refund else 1
 
-                # --- 6. Crear commission.move por SO y regla ---
                 for so in sale_orders:
                     so_ratio = so_weights[so.id] / total_weight
                     so_paid_base = paid_base_mxn * so_ratio
@@ -184,11 +202,13 @@ class AccountPartialReconcile(models.Model):
                     best_inv_line = so_inv_lines[:1] if so_inv_lines else invoice_origin.invoice_line_ids[:1]
 
                     for rule in so.commission_rule_ids:
-                        if CommissionMove.search_count([
+                        already = CommissionMove.search_count([
                             ('partial_reconcile_id', '=', rec.id),
                             ('partner_id', '=', rule.partner_id.id),
                             ('sale_order_id', '=', so.id),
-                        ], limit=1):
+                        ], limit=1)
+                        if already:
+                            _logger.info(f"[COMM] ya existe comisión partial={rec.id} partner={rule.partner_id.id} SO={so.id}, skip")
                             continue
 
                         if rule.calculation_base == 'manual':
@@ -207,13 +227,17 @@ class AccountPartialReconcile(models.Model):
                             so.date_order or fields.Date.today()
                         )
                         if so_total_mxn == 0:
+                            _logger.warning(f"[COMM] SO {so.id} amount_total=0, skip")
                             continue
 
                         paid_total_mxn_so = abs(invoice_origin.amount_total_signed) * payment_ratio * so_ratio
                         final_ratio = paid_total_mxn_so / so_total_mxn
                         commission_amount = rule_amount_mxn * final_ratio * sign
 
+                        _logger.info(f"[COMM] SO={so.name} rule={rule.id}: estimated={rule.estimated_amount}, rule_mxn={round(rule_amount_mxn,2)}, final_ratio={round(final_ratio,4)}, commission={round(commission_amount,2)}")
+
                         if abs(commission_amount) < 0.01:
+                            _logger.warning(f"[COMM] commission_amount={commission_amount} < 0.01, skip")
                             continue
 
                         CommissionMove.create({
@@ -230,6 +254,7 @@ class AccountPartialReconcile(models.Model):
                             'state': 'draft',
                             'name': f"Cmsn: {invoice.name} / {so.name} ({round(final_ratio * 100, 1)}%)",
                         })
+                        _logger.info(f"[COMM] ✅ Creada comisión {so.name} partner={rule.partner_id.id}: {round(commission_amount,2)}")
 
             except Exception as e:
                 _logger.error(f"[COMMISSION] Error en partial {rec.id}: {e}", exc_info=True)
@@ -746,6 +771,65 @@ class SaleOrderLine(models.Model):
 ```py
 from . import commission_report```
 
+## ./report/commission_report.py
+```py
+from odoo import models, api
+
+
+class ReportCommissionPDF(models.AbstractModel):
+    _name = 'report.om_advanced_commission.report_commission_document'
+    _description = 'Lógica de Reporte de Comisiones'
+
+    @api.model
+    def _get_report_values(self, docids, data=None):
+        data = data or {}
+        date_from = data.get('date_from')
+        date_to = data.get('date_to')
+        partner_ids = data.get('partner_ids')
+
+        if not date_from or not date_to:
+            return {
+                'doc_ids': docids,
+                'doc_model': 'commission.report.wizard',
+                'data': data,
+                'docs': [],
+                'company': self.env.company,
+            }
+
+        domain = [
+            ('date', '>=', date_from),
+            ('date', '<=', date_to),
+            ('state', '!=', 'cancel'),
+            ('company_id', '=', self.env.company.id),
+        ]
+        if partner_ids:
+            domain.append(('partner_id', 'in', partner_ids))
+
+        moves = self.env['commission.move'].search(domain, order='partner_id, date, id')
+
+        grouped_data = {}
+        for move in moves:
+            partner = move.partner_id
+            if partner.id not in grouped_data:
+                grouped_data[partner.id] = {
+                    'partner': partner,
+                    'currency': move.currency_id,
+                    'moves': [],
+                    'total_base': 0.0,
+                    'total_commission': 0.0,
+                }
+            grouped_data[partner.id]['moves'].append(move)
+            grouped_data[partner.id]['total_base'] += move.base_amount_paid
+            grouped_data[partner.id]['total_commission'] += move.amount
+
+        return {
+            'doc_ids': docids,
+            'doc_model': 'commission.report.wizard',
+            'data': data,
+            'docs': grouped_data.values(),
+            'company': self.env.company,
+        }```
+
 ## ./report/commission_report_template.xml
 ```xml
 <odoo>
@@ -932,65 +1016,6 @@ from . import commission_report```
         </t>
     </template>
 </odoo>```
-
-## ./report/commission_report.py
-```py
-from odoo import models, api
-
-
-class ReportCommissionPDF(models.AbstractModel):
-    _name = 'report.om_advanced_commission.report_commission_document'
-    _description = 'Lógica de Reporte de Comisiones'
-
-    @api.model
-    def _get_report_values(self, docids, data=None):
-        data = data or {}
-        date_from = data.get('date_from')
-        date_to = data.get('date_to')
-        partner_ids = data.get('partner_ids')
-
-        if not date_from or not date_to:
-            return {
-                'doc_ids': docids,
-                'doc_model': 'commission.report.wizard',
-                'data': data,
-                'docs': [],
-                'company': self.env.company,
-            }
-
-        domain = [
-            ('date', '>=', date_from),
-            ('date', '<=', date_to),
-            ('state', '!=', 'cancel'),
-            ('company_id', '=', self.env.company.id),
-        ]
-        if partner_ids:
-            domain.append(('partner_id', 'in', partner_ids))
-
-        moves = self.env['commission.move'].search(domain, order='partner_id, date, id')
-
-        grouped_data = {}
-        for move in moves:
-            partner = move.partner_id
-            if partner.id not in grouped_data:
-                grouped_data[partner.id] = {
-                    'partner': partner,
-                    'currency': move.currency_id,
-                    'moves': [],
-                    'total_base': 0.0,
-                    'total_commission': 0.0,
-                }
-            grouped_data[partner.id]['moves'].append(move)
-            grouped_data[partner.id]['total_base'] += move.base_amount_paid
-            grouped_data[partner.id]['total_commission'] += move.amount
-
-        return {
-            'doc_ids': docids,
-            'doc_model': 'commission.report.wizard',
-            'data': data,
-            'docs': grouped_data.values(),
-            'company': self.env.company,
-        }```
 
 ## ./security/security.xml
 ```xml
@@ -1314,28 +1339,6 @@ from . import commission_make_invoice
 from . import commission_report_wizard
 from . import commission_authorization_reject_wizard```
 
-## ./wizard/commission_authorization_reject_wizard_views.xml
-```xml
-<odoo>
-    <record id="view_commission_auth_reject_wizard" model="ir.ui.view">
-        <field name="name">commission.authorization.reject.wizard.form</field>
-        <field name="model">commission.authorization.reject.wizard</field>
-        <field name="arch" type="xml">
-            <form string="Rechazar Autorización">
-                <group>
-                    <field name="authorization_id" readonly="1"/>
-                    <field name="reject_reason" placeholder="Indica el motivo del rechazo..."/>
-                </group>
-                <footer>
-                    <button name="action_confirm_reject" string="Confirmar Rechazo"
-                            type="object" class="btn-danger"/>
-                    <button string="Cancelar" special="cancel" class="btn-secondary"/>
-                </footer>
-            </form>
-        </field>
-    </record>
-</odoo>```
-
 ## ./wizard/commission_authorization_reject_wizard.py
 ```py
 from odoo import models, fields
@@ -1357,36 +1360,27 @@ class CommissionAuthorizationRejectWizard(models.TransientModel):
             body=f"❌ Rechazado por {self.env.user.name}: {self.reject_reason}"
         )```
 
-## ./wizard/commission_make_invoice_views.xml
+## ./wizard/commission_authorization_reject_wizard_views.xml
 ```xml
 <odoo>
-    <record id="view_commission_make_invoice" model="ir.ui.view">
-        <field name="name">commission.make.invoice.form</field>
-        <field name="model">commission.make.invoice</field>
+    <record id="view_commission_auth_reject_wizard" model="ir.ui.view">
+        <field name="name">commission.authorization.reject.wizard.form</field>
+        <field name="model">commission.authorization.reject.wizard</field>
         <field name="arch" type="xml">
-            <form>
+            <form string="Rechazar Autorización">
                 <group>
-                    <field name="date_to"/>
-                    <field name="partner_ids" widget="many2many_tags" placeholder="Dejar vacío para todos"/>
+                    <field name="authorization_id" readonly="1"/>
+                    <field name="reject_reason" placeholder="Indica el motivo del rechazo..."/>
                 </group>
                 <footer>
-                    <button name="action_generate_settlements" string="Generar Liquidaciones" type="object" class="btn-primary"/>
+                    <button name="action_confirm_reject" string="Confirmar Rechazo"
+                            type="object" class="btn-danger"/>
                     <button string="Cancelar" special="cancel" class="btn-secondary"/>
                 </footer>
             </form>
         </field>
     </record>
-
-    <record id="action_commission_wizard" model="ir.actions.act_window">
-        <field name="name">Generar Liquidación Masiva</field>
-        <field name="res_model">commission.make.invoice</field>
-        <field name="target">new</field>
-        <field name="view_mode">form</field>
-    </record>
-
-    <menuitem id="menu_commission_wizard" name="Generar Liquidación Masiva" parent="menu_commission_root" action="action_commission_wizard" sequence="5"/>
-</odoo>
-```
+</odoo>```
 
 ## ./wizard/commission_make_invoice.py
 ```py
@@ -1440,62 +1434,36 @@ class CommissionMakeInvoice(models.TransientModel):
             'domain': [('id', 'in', created_settlements.ids)],
         }```
 
-## ./wizard/commission_report_wizard_views.xml
+## ./wizard/commission_make_invoice_views.xml
 ```xml
 <odoo>
-    <record id="view_commission_report_wizard_form" model="ir.ui.view">
-        <field name="name">commission.report.wizard.form</field>
-        <field name="model">commission.report.wizard</field>
+    <record id="view_commission_make_invoice" model="ir.ui.view">
+        <field name="name">commission.make.invoice.form</field>
+        <field name="model">commission.make.invoice</field>
         <field name="arch" type="xml">
-            <form string="Reporte de Comisiones">
+            <form>
                 <group>
-                    <group>
-                        <field name="date_from"/>
-                        <field name="date_to"/>
-                    </group>
-                    <group>
-                        <field name="allow_previous_months" invisible="1"/>
-                        <field name="partner_ids" widget="many2many_tags"
-                               placeholder="Todos los vendedores..."
-                               invisible="not allow_previous_months"
-                               groups="om_advanced_commission.group_commission_authorizer"/>
-                    </group>
+                    <field name="date_to"/>
+                    <field name="partner_ids" widget="many2many_tags" placeholder="Dejar vacío para todos"/>
                 </group>
-                <div class="alert alert-info" role="alert"
-                     invisible="allow_previous_months">
-                    Solo puedes consultar comisiones del mes en curso.
-                </div>
                 <footer>
-                    <button name="action_print_report" string="Imprimir PDF" type="object"
-                            class="btn-primary" icon="fa-print"/>
+                    <button name="action_generate_settlements" string="Generar Liquidaciones" type="object" class="btn-primary"/>
                     <button string="Cancelar" special="cancel" class="btn-secondary"/>
                 </footer>
             </form>
         </field>
     </record>
 
-    <record id="action_commission_report_wizard" model="ir.actions.act_window">
-        <field name="name">Reporte PDF de Comisiones</field>
-        <field name="res_model">commission.report.wizard</field>
-        <field name="view_mode">form</field>
+    <record id="action_commission_wizard" model="ir.actions.act_window">
+        <field name="name">Generar Liquidación Masiva</field>
+        <field name="res_model">commission.make.invoice</field>
         <field name="target">new</field>
+        <field name="view_mode">form</field>
     </record>
 
-    <!-- Mis Comisiones: accesible para todos los vendedores -->
-    <menuitem id="menu_commission_report_sales"
-              name="Mis Comisiones"
-              parent="menu_commission_root"
-              action="action_commission_report_wizard"
-              sequence="1"/>
-
-    <!-- Reporte PDF: accesible para gestores -->
-    <menuitem id="menu_commission_report"
-              name="Reporte PDF"
-              parent="menu_commission_root"
-              action="action_commission_report_wizard"
-              sequence="30"
-              groups="om_advanced_commission.group_commission_manager"/>
-</odoo>```
+    <menuitem id="menu_commission_wizard" name="Generar Liquidación Masiva" parent="menu_commission_root" action="action_commission_wizard" sequence="5"/>
+</odoo>
+```
 
 ## ./wizard/commission_report_wizard.py
 ```py
@@ -1556,4 +1524,61 @@ class CommissionReportWizard(models.TransientModel):
             'partner_ids': self.partner_ids.ids,
         }
         return self.env.ref('om_advanced_commission.action_report_commission_pdf').report_action(self, data=data)```
+
+## ./wizard/commission_report_wizard_views.xml
+```xml
+<odoo>
+    <record id="view_commission_report_wizard_form" model="ir.ui.view">
+        <field name="name">commission.report.wizard.form</field>
+        <field name="model">commission.report.wizard</field>
+        <field name="arch" type="xml">
+            <form string="Reporte de Comisiones">
+                <group>
+                    <group>
+                        <field name="date_from"/>
+                        <field name="date_to"/>
+                    </group>
+                    <group>
+                        <field name="allow_previous_months" invisible="1"/>
+                        <field name="partner_ids" widget="many2many_tags"
+                               placeholder="Todos los vendedores..."
+                               invisible="not allow_previous_months"
+                               groups="om_advanced_commission.group_commission_authorizer"/>
+                    </group>
+                </group>
+                <div class="alert alert-info" role="alert"
+                     invisible="allow_previous_months">
+                    Solo puedes consultar comisiones del mes en curso.
+                </div>
+                <footer>
+                    <button name="action_print_report" string="Imprimir PDF" type="object"
+                            class="btn-primary" icon="fa-print"/>
+                    <button string="Cancelar" special="cancel" class="btn-secondary"/>
+                </footer>
+            </form>
+        </field>
+    </record>
+
+    <record id="action_commission_report_wizard" model="ir.actions.act_window">
+        <field name="name">Reporte PDF de Comisiones</field>
+        <field name="res_model">commission.report.wizard</field>
+        <field name="view_mode">form</field>
+        <field name="target">new</field>
+    </record>
+
+    <!-- Mis Comisiones: accesible para todos los vendedores -->
+    <menuitem id="menu_commission_report_sales"
+              name="Mis Comisiones"
+              parent="menu_commission_root"
+              action="action_commission_report_wizard"
+              sequence="1"/>
+
+    <!-- Reporte PDF: accesible para gestores -->
+    <menuitem id="menu_commission_report"
+              name="Reporte PDF"
+              parent="menu_commission_root"
+              action="action_commission_report_wizard"
+              sequence="30"
+              groups="om_advanced_commission.group_commission_manager"/>
+</odoo>```
 
