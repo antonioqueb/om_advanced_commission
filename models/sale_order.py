@@ -54,16 +54,10 @@ class SaleOrder(models.Model):
                 (so.seller3_percent or 0.0)
             )
 
-    @api.depends('commission_rule_ids.percent', 'commission_rule_ids.calculation_base',
-                 'seller1_percent', 'seller2_percent', 'seller3_percent')
+    @api.depends('seller1_percent', 'seller2_percent', 'seller3_percent')
     def _compute_total_commission_percent(self):
         for so in self:
-            seller_pct = so.total_seller_percent
-            other_pct = sum(
-                r.percent for r in so.commission_rule_ids
-                if r.role_type != 'internal' and r.calculation_base != 'manual'
-            )
-            so.total_commission_percent = seller_pct + other_pct
+            so.total_commission_percent = so.total_seller_percent
 
     @api.depends('total_seller_percent', 'commission_authorization_id',
                  'commission_authorization_id.state')
@@ -115,7 +109,7 @@ class SaleOrder(models.Model):
                 new_internal_cmds.append((0, 0, {
                     'partner_id': partner.id,
                     'role_type': 'internal',
-                    'calculation_base': 'amount_untaxed',
+                    'calculation_base': 'gross_utility',
                     'percent': pct,
                 }))
 
@@ -139,7 +133,7 @@ class SaleOrder(models.Model):
                             'sale_order_id': so.id,
                             'partner_id': partner.id,
                             'role_type': 'internal',
-                            'calculation_base': 'amount_untaxed',
+                            'calculation_base': 'gross_utility',
                             'percent': pct,
                         })
         return res
