@@ -59,7 +59,7 @@
             </xpath>
 
             <xpath expr="//field[@name='order_line']/list//field[@name='price_unit']" position="after">
-                <field name="no_commission" optional="hide"/>
+                <field name="no_commission" optional="hide" column_invisible="parent.state != 'sale'"/>
             </xpath>
         </field>
     </record>
