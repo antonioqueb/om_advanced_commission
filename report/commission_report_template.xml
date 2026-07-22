@@ -17,18 +17,18 @@
         <t t-call="web.html_container">
             <t t-call="web.external_layout">
                 <div class="page" style="font-family: 'Helvetica', Arial, sans-serif; font-size: 11px; color: #333;">
-                    
-                    <!-- ENCABEZADO MODERNO -->
-                    <div class="row mb-5">
+                    <t t-call="stock_lot_dimensions.som_report_style"/>
+
+                    <!-- ENCABEZADO -->
+                    <div class="row mb-4">
                         <div class="col-12 text-center">
-                            <h2 style="font-weight: 900; text-transform: uppercase; letter-spacing: 1px; color: #000; margin-bottom: 5px;">
+                            <h2 class="som-doc-title">
                                 Reporte de Comisiones
                             </h2>
-                            <div style="border-bottom: 3px solid #000; width: 60px; margin: 0 auto 15px auto;"></div>
-                            <p style="font-size: 13px; color: #666;">
-                                <strong>Periodo:</strong> 
+                            <p class="som-doc-subtitle">
+                                <strong>Periodo:</strong>
                                 <span t-esc="data['date_from']" t-options='{"widget": "date"}' class="ml-1 mr-1"/>
-                                <i class="fa fa-long-arrow-right mx-1"/>
+                                —
                                 <span t-esc="data['date_to']" t-options='{"widget": "date"}' class="ml-1"/>
                             </p>
                         </div>
@@ -36,78 +36,43 @@
 
                     <!-- Iterar sobre cada Vendedor -->
                     <t t-foreach="docs" t-as="group">
-                        
+
                         <!-- SEPARADOR DE VENDEDOR -->
-                        <div class="mt-4 mb-3" style="border-left: 6px solid #000; padding-left: 10px; background-color: #f8f9fa; padding-top:8px; padding-bottom:8px;">
-                            <span style="font-size: 15px; font-weight: bold; color: #212529; text-transform: uppercase;">
-                                <i class="fa fa-user-circle-o mr-2" style="opacity: 0.6;"></i>
-                                <span t-esc="group['partner'].name"/>
-                            </span>
+                        <div class="som-section-title mt-4" style="margin-bottom: 4px;">
+                            <span t-esc="group['partner'].name"/>
                         </div>
 
-                        <!-- TABLA MODERNA -->
-                        <table class="table table-sm table-borderless" style="margin-bottom: 30px;">
-                            <!-- 
-                                CABECERA NEGRA, TEXTO BLANCO 
-                                Nota: Usamos !important en el color para sobreescribir estilos de Bootstrap en PDF 
-                            -->
-                            <thead style="background-color: #000000; color: #FFFFFF;">
-                                <tr style="border-bottom: 2px solid #000;">
-                                    <th class="text-center align-middle"
-                                        style="width: 8%; padding: 8px; font-weight: 600; color: #FFFFFF !important; font-size: 9px;">
-                                        FOLIO
-                                    </th>
-                                    <th class="text-center align-middle"
-                                        style="width: 13%; padding: 8px; font-weight: 600; color: #FFFFFF !important; font-size: 9px;">
-                                        FECHA FACTURA
-                                    </th>
-                                    <th class="align-middle"
-                                        style="width: 14%; padding: 8px; font-weight: 600; color: #FFFFFF !important; font-size: 9px;">
-                                        RAZÓN SOCIAL
-                                    </th>
-                                    <th class="align-middle"
-                                        style="width: 10%; padding: 8px; font-weight: 600; color: #FFFFFF !important; font-size: 9px;">
-                                        JOB NAME
-                                    </th>
-                                    <th class="text-center align-middle"
-                                        style="width: 11%; padding: 8px; font-weight: 600; color: #FFFFFF !important; font-size: 9px;">
-                                        FECHA PAGO
-                                    </th>
-                                    <th class="text-center align-middle"
-                                        style="width: 9%; padding: 8px; font-weight: 600; color: #FFFFFF !important; font-size: 9px;">
-                                        FACTURA
-                                    </th>
-                                    <th class="text-right align-middle"
-                                        style="width: 12%; padding: 8px; font-weight: 600; color: #FFFFFF !important; font-size: 9px;">
-                                        $ FACT. (SIN IVA)
-                                    </th>
-                                    <th class="text-center align-middle"
-                                        style="width: 10%; padding: 8px; font-weight: 600; color: #FFFFFF !important; font-size: 9px;">
-                                        % COMISIÓN
-                                    </th>
-                                    <th class="text-right align-middle"
-                                        style="width: 14%; padding: 8px; font-weight: 600; color: #FFFFFF !important; font-size: 9px;">
-                                        MONTO COMISIÓN
-                                    </th>
+                        <!-- TABLA -->
+                        <table class="som-table" style="margin-bottom: 30px;">
+                            <thead>
+                                <tr>
+                                    <th class="text-center" style="width: 8%;">FOLIO</th>
+                                    <th class="text-center" style="width: 13%;">FECHA FACTURA</th>
+                                    <th style="width: 14%;">RAZÓN SOCIAL</th>
+                                    <th style="width: 10%;">JOB NAME</th>
+                                    <th class="text-center" style="width: 11%;">FECHA PAGO</th>
+                                    <th class="text-center" style="width: 9%;">FACTURA</th>
+                                    <th class="som-num" style="width: 12%;">$ FACT. (SIN IVA)</th>
+                                    <th class="text-center" style="width: 10%;">% COMISIÓN</th>
+                                    <th class="som-num" style="width: 14%;">MONTO COMISIÓN</th>
                                 </tr>
-
                             </thead>
                             
                             <!-- CUERPO -->
                             <tbody>
-                                <tr t-foreach="group['moves']" t-as="move" style="border-bottom: 1px solid #e9ecef;">
-                                    <td class="text-center align-middle py-2">
+                                <tr t-foreach="group['moves']" t-as="move">
+                                    <td class="text-center align-middle">
                                         <span t-field="move.sale_order_id.name" style="font-weight: 500;"/>
                                     </td>
-                                    <td class="text-center align-middle text-muted">
+                                    <td class="text-center align-middle som-muted">
                                         <span t-if="move.invoice_line_id" t-field="move.invoice_line_id.move_id.invoice_date"/>
                                         <span t-else="">-</span>
                                     </td>
                                     <td class="align-middle">
-                                        <span t-field="move.sale_order_id.partner_id.name" 
-                                              style="display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 160px; font-weight: 500;"/>
+                                        <span t-field="move.sale_order_id.partner_id.name"
+                                              style="font-weight: 500;"/>
                                     </td>
-                                    <td class="align-middle text-muted">
+                                    <td class="align-middle som-muted">
                                         <span t-if="move.sale_order_id.x_project_id" t-field="move.sale_order_id.x_project_id.name"/>
                                         <span t-else="">-</span>
                                     </td>
@@ -116,15 +81,13 @@
                                         <span t-else="" t-field="move.date"/>
                                     </td>
                                     <td class="text-center align-middle">
-                                        <span class="badge badge-light border" style="font-size: 10px;">
-                                            <t t-if="move.invoice_line_id">
-                                                <span t-field="move.invoice_line_id.move_id.name"/>
-                                            </t>
-                                            <t t-else="">Varios</t>
-                                        </span>
+                                        <t t-if="move.invoice_line_id">
+                                            <span t-field="move.invoice_line_id.move_id.name"/>
+                                        </t>
+                                        <t t-else="">Varios</t>
                                     </td>
-                                    <td class="text-right align-middle">
-                                        <span t-field="move.base_amount_paid" 
+                                    <td class="som-num align-middle">
+                                        <span t-field="move.base_amount_paid"
                                               t-options='{"widget": "monetary", "display_currency": move.currency_id}'/>
                                     </td>
                                     <!-- Porcentaje limpio (sin fondo) -->
@@ -134,8 +97,8 @@
                                         </t>
                                         <t t-else="">Fijo</t>
                                     </td>
-                                    <td class="text-right align-middle" style="font-weight: bold; color: #000;">
-                                        <span t-field="move.amount" 
+                                    <td class="som-num align-middle" style="font-weight: bold; color: #000;">
+                                        <span t-field="move.amount"
                                               t-options='{"widget": "monetary", "display_currency": move.currency_id}'/>
                                     </td>
                                 </tr>
@@ -143,17 +106,17 @@
 
                             <!-- PIE DE TOTALES -->
                             <tfoot>
-                                <tr style="background-color: #f0f0f0;">
-                                    <td colspan="6" class="text-right align-middle text-uppercase" style="padding: 10px; font-weight: bold; color: #555;">
+                                <tr style="background-color: #f2f2f2; border-top: 2px solid #2f2f2f;">
+                                    <td colspan="6" class="text-end align-middle som-upper" style="padding: 5px 6px; font-weight: 800; color: #555;">
                                         Totales <span t-esc="group['partner'].name"/>:
                                     </td>
-                                    <td class="text-right align-middle" style="padding: 10px; font-weight: bold;">
-                                        <span t-esc="group['total_base']" 
+                                    <td class="som-num align-middle" style="padding: 5px 6px; font-weight: 800;">
+                                        <span t-esc="group['total_base']"
                                               t-options='{"widget": "monetary", "display_currency": group["currency"]}'/>
                                     </td>
                                     <td class="align-middle"></td>
-                                    <td class="text-right align-middle" style="padding: 10px; background-color: #1a1a1a; color: #fff; font-size: 12px; font-weight: bold;">
-                                        <span t-esc="group['total_commission']" 
+                                    <td class="som-num align-middle" style="padding: 5px 6px; background-color: #2f2f2f; color: #fff; font-size: 10.5px; font-weight: 800;">
+                                        <span t-esc="group['total_commission']"
                                               t-options='{"widget": "monetary", "display_currency": group["currency"]}'/>
                                     </td>
                                 </tr>
