@@ -33,11 +33,13 @@ class CommissionMove(models.Model):
         ('cancel', 'Cancelado')
     ], default='draft', string='Estado', index=True)
 
-    _sql_constraints = [
-        ('unique_commission_per_reconcile_partner_rule',
-         'UNIQUE(partial_reconcile_id, partner_id, sale_order_id)',
-         'Ya existe una comisión para esta conciliación, comisionista y orden de venta.'),
-    ]
+    # Odoo 19: models.Constraint reemplaza a _sql_constraints (que ya no se
+    # aplica). CRÍTICO aquí: sin esta restricción activa se podían duplicar
+    # comisiones de la misma conciliación.
+    _unique_commission_per_reconcile_partner_rule = models.Constraint(
+        'UNIQUE(partial_reconcile_id, partner_id, sale_order_id)',
+        'Ya existe una comisión para esta conciliación, comisionista y orden de venta.',
+    )
 
     @api.model_create_multi
     def create(self, vals_list):

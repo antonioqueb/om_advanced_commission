@@ -9,14 +9,25 @@ class CommissionAuthorization(models.Model):
     _order = 'create_date desc'
 
     name = fields.Char(string='Referencia', readonly=True, default='Nueva Solicitud')
-    sale_order_id = fields.Many2one('sale.order', string='Orden de Venta', required=True, readonly=True,
-                                    states={'draft': [('readonly', False)]})
+    # Odoo 17+ eliminó `states=` en campos: dejaba el campo readonly SIEMPRE
+    # (ni en borrador se podía asignar la orden). La condición vive ahora en
+    # la vista (readonly="state != 'draft'").
+    sale_order_id = fields.Many2one('sale.order', string='Orden de Venta', required=True)
     requested_by = fields.Many2one('res.users', string='Solicitado por',
                                    default=lambda self: self.env.user, readonly=True)
-    authorizer_id = fields.Many2one('res.users', string='Autorizador',
-                                    domain=lambda self: [('groups_id', 'in', [
-                                        self.env.ref('om_advanced_commission.group_commission_authorizer').id
-                                    ])])
+    # Odoo 19 renombró res.users.groups_id → group_ids: el dominio viejo
+    # lanzaba "Invalid field" al abrir el desplegable de Autorizador. Se
+    # resuelve el nombre real del campo para funcionar en ambas versiones.
+    authorizer_id = fields.Many2one(
+        'res.users', string='Autorizador',
+        domain=lambda self: [
+            (
+                'group_ids' if 'group_ids' in self.env['res.users']._fields else 'groups_id',
+                'in',
+                [self.env.ref('om_advanced_commission.group_commission_authorizer').id],
+            )
+        ],
+    )
     requested_percent = fields.Float(string='% Solicitado (Total Vendedores)', required=True)
     current_percent = fields.Float(string='% Actual Permitido', default=2.5, readonly=True)
     justification = fields.Text(string='Justificación')
