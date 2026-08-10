@@ -11,7 +11,7 @@ class SaleCommissionRule(models.Model):
 
     role_type = fields.Selection([
         ('internal', 'Vendedor'),
-        ('architect', 'Arquitecto'),
+        ('architect', 'Embajador'),
         ('construction', 'Constructora'),
         ('referrer', 'Referidor')
     ], string='Rol', required=True, default='internal')
@@ -70,10 +70,10 @@ class SaleCommissionRule(models.Model):
 
             elif rule.calculation_base == 'gross_utility':
                 # Utilidad bruta = Subtotal - todas las comisiones externas
-                # (arquitectos, constructoras, referidores, y otros vendedores internos)
+                # (embajadores, constructoras, referidores, y otros vendedores internos)
                 subtotal = sum(lines.mapped('price_subtotal'))
 
-                # Sumar comisiones de roles NO internos (arquitecto, constructora, referidor)
+                # Sumar comisiones de roles NO internos (embajador, constructora, referidor)
                 external_commission = 0.0
                 for other in so.commission_rule_ids:
                     if other.id == rule.id:
