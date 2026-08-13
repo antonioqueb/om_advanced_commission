@@ -1,6 +1,6 @@
 {
     'name': 'Gestión Avanzada de Comisiones (Cash Basis & Proyectos)',
-    'version': '19.0.1.5.0',
+    'version': '19.0.1.6.0',
     'category': 'Sales/Commissions',
     'summary': 'Motor de comisiones multi-agente basado en pagos, margenes y liquidaciones.',
     'author': 'Alphaqueb Consulting',
