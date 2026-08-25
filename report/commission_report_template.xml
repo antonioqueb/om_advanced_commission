@@ -65,7 +65,7 @@
                                         <span t-field="move.sale_order_id.name" style="font-weight: 500;"/>
                                     </td>
                                     <td class="text-center align-middle som-muted">
-                                        <span t-if="move.invoice_line_id" t-field="move.invoice_line_id.move_id.invoice_date" t-options='{"widget": "date", "format": "dd MMM yyyy"}'/>
+                                        <span t-if="acct[move.id]['invoice_date']" t-esc="acct[move.id]['invoice_date']"/>
                                         <span t-else="">-</span>
                                     </td>
                                     <td class="align-middle">
@@ -77,12 +77,12 @@
                                         <span t-else="">-</span>
                                     </td>
                                     <td class="text-center align-middle">
-                                        <span t-if="move.payment_id" t-field="move.payment_id.date" t-options='{"widget": "date", "format": "dd MMM yyyy"}'/>
+                                        <span t-if="acct[move.id]['payment_date']" t-esc="acct[move.id]['payment_date']"/>
                                         <span t-else="" t-field="move.date" t-options='{"widget": "date", "format": "dd MMM yyyy"}'/>
                                     </td>
                                     <td class="text-center align-middle">
-                                        <t t-if="move.invoice_line_id">
-                                            <span t-field="move.invoice_line_id.move_id.name"/>
+                                        <t t-if="acct[move.id]['invoice_name']">
+                                            <span t-esc="acct[move.id]['invoice_name']"/>
                                         </t>
                                         <t t-else="">Varios</t>
                                     </td>

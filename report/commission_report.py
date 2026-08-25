@@ -1,4 +1,5 @@
 from odoo import models, api
+from odoo.tools.misc import format_date
 
 
 class ReportCommissionPDF(models.AbstractModel):
@@ -32,6 +33,26 @@ class ReportCommissionPDF(models.AbstractModel):
 
         moves = self.env['commission.move'].search(domain, order='partner_id, date, id')
 
+        # DATOS CONTABLES CON SUDO: el vendedor no tiene (ni debe tener)
+        # permisos de contabilidad, y la plantilla leia factura/pago como
+        # usuario -> AccessError de contabilidad al imprimir 'Mis
+        # Comisiones'. Aqui se extraen SOLO folio y fechas, nada mas del
+        # universo contable, y la plantilla los recibe ya resueltos.
+        acct = {}
+        for move in moves:
+            sm = move.sudo()
+            inv = sm.invoice_line_id.move_id
+            pay = sm.payment_id
+            acct[move.id] = {
+                'invoice_date': format_date(
+                    self.env, inv.invoice_date, date_format='dd MMM yyyy')
+                if inv and inv.invoice_date else '',
+                'invoice_name': (inv.name or '') if inv else '',
+                'payment_date': format_date(
+                    self.env, pay.date, date_format='dd MMM yyyy')
+                if pay and pay.date else '',
+            }
+
         grouped_data = {}
         for move in moves:
             partner = move.partner_id
@@ -52,5 +73,6 @@ class ReportCommissionPDF(models.AbstractModel):
             'doc_model': 'commission.report.wizard',
             'data': data,
             'docs': grouped_data.values(),
+            'acct': acct,
             'company': self.env.company,
         }
