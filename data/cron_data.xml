@@ -1,0 +1,11 @@
+<odoo>
+    <record id="cron_commission_audit_missing" model="ir.cron">
+        <field name="name">Comisiones: auditar cobros sin comisión</field>
+        <field name="model_id" ref="model_commission_move"/>
+        <field name="state">code</field>
+        <field name="code">model._cron_audit_missing_commissions()</field>
+        <field name="interval_number">1</field>
+        <field name="interval_type">days</field>
+        <field name="active" eval="True"/>
+    </record>
+</odoo>

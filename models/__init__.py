@@ -1,4 +1,5 @@
 from . import res_config_settings
+from . import res_partner
 from . import commission_rule
 from . import commission_move
 from . import commission_settlement

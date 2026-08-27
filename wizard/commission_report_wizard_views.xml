@@ -4,22 +4,21 @@
         <field name="model">commission.report.wizard</field>
         <field name="arch" type="xml">
             <form string="Reporte de Comisiones">
+                <field name="is_authorizer" invisible="1"/>
                 <group>
                     <group>
                         <field name="date_from"/>
                         <field name="date_to"/>
                     </group>
                     <group>
-                        <field name="allow_previous_months" invisible="1"/>
+                        <field name="date_basis" widget="radio"/>
                         <field name="partner_ids" widget="many2many_tags"
                                placeholder="Todos los vendedores..."
-                               invisible="not allow_previous_months"
-                               groups="om_advanced_commission.group_commission_authorizer"/>
+                               invisible="not is_authorizer"/>
                     </group>
                 </group>
-                <div class="alert alert-info" role="alert"
-                     invisible="allow_previous_months">
-                    Solo puedes consultar comisiones del mes en curso.
+                <div class="alert alert-info" role="alert" invisible="is_authorizer">
+                    Solo verás tus propias comisiones. Puedes consultar cualquier periodo.
                 </div>
                 <footer>
                     <button name="action_print_report" string="Imprimir PDF" type="object"

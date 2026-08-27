@@ -3,15 +3,100 @@
         <field name="name">commission.move.list</field>
         <field name="model">commission.move</field>
         <field name="arch" type="xml">
-            <list string="Movimientos" decoration-danger="amount &lt; 0" create="0">
+            <list string="Movimientos" decoration-danger="amount &lt; 0"
+                  decoration-warning="retention_factor &lt; 1" create="0">
                 <field name="date"/>
                 <field name="name"/>
                 <field name="partner_id"/>
+                <field name="rule_role" optional="show"/>
                 <field name="sale_order_id"/>
+                <field name="invoice_name" optional="show"/>
+                <field name="base_amount_paid" sum="Base" optional="show"/>
                 <field name="amount" sum="Total"/>
+                <field name="retention_factor" optional="hide"/>
+                <field name="origin_move_id" optional="hide"/>
+                <field name="settlement_id" optional="hide" groups="om_advanced_commission.group_commission_manager"/>
                 <field name="currency_id" column_invisible="1"/>
-                <field name="state" widget="badge" decoration-success="state == 'invoiced'"/>
+                <field name="state" widget="badge" decoration-success="state == 'invoiced'"
+                       decoration-info="state == 'settled'"/>
             </list>
+        </field>
+    </record>
+
+    <record id="view_commission_move_form" model="ir.ui.view">
+        <field name="name">commission.move.form</field>
+        <field name="model">commission.move</field>
+        <field name="arch" type="xml">
+            <form string="Movimiento de Comisión" create="0">
+                <header>
+                    <field name="state" widget="statusbar"/>
+                </header>
+                <sheet>
+                    <div class="oe_title">
+                        <h1><field name="name" readonly="1"/></h1>
+                    </div>
+                    <group>
+                        <group string="Origen">
+                            <field name="partner_id" readonly="1"/>
+                            <field name="sale_order_id" readonly="1"/>
+                            <field name="invoice_name" readonly="1"/>
+                            <field name="invoice_id" readonly="1" groups="account.group_account_invoice"/>
+                            <field name="payment_id" readonly="1" groups="account.group_account_invoice"/>
+                            <field name="partial_reconcile_id" readonly="1" groups="account.group_account_user"/>
+                            <field name="date"/>
+                            <field name="company_id" readonly="1"/>
+                        </group>
+                        <group string="Monto">
+                            <field name="currency_id" invisible="1"/>
+                            <field name="base_amount_paid" readonly="1"/>
+                            <field name="amount" readonly="state != 'draft'"/>
+                            <field name="is_refund" readonly="1"/>
+                            <field name="settlement_id" readonly="1" groups="om_advanced_commission.group_commission_manager"/>
+                        </group>
+                    </group>
+                    <group string="Regla aplicada (snapshot al devengar)">
+                        <group>
+                            <field name="rule_id" readonly="1"/>
+                            <field name="rule_role" readonly="1"/>
+                            <field name="rule_base" readonly="1"/>
+                        </group>
+                        <group>
+                            <field name="rule_percent" readonly="1" invisible="rule_base == 'manual'"/>
+                            <field name="rule_fixed_amount" readonly="1" invisible="rule_base != 'manual'"/>
+                            <field name="retention_factor" readonly="1"/>
+                        </group>
+                    </group>
+                    <group string="Reversas" invisible="not origin_move_id and not reversal_ids">
+                        <field name="origin_move_id" readonly="1" invisible="not origin_move_id"/>
+                        <field name="reversal_ids" readonly="1" invisible="not reversal_ids">
+                            <list><field name="name"/><field name="date"/><field name="amount"/><field name="state"/></list>
+                        </field>
+                    </group>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="view_commission_move_search" model="ir.ui.view">
+        <field name="name">commission.move.search</field>
+        <field name="model">commission.move</field>
+        <field name="arch" type="xml">
+            <search>
+                <field name="name"/>
+                <field name="partner_id"/>
+                <field name="sale_order_id"/>
+                <field name="invoice_name"/>
+                <filter name="draft" string="Pendientes" domain="[('state', '=', 'draft')]"/>
+                <filter name="settled" string="En liquidación" domain="[('state', '=', 'settled')]"/>
+                <filter name="invoiced" string="Pagados" domain="[('state', '=', 'invoiced')]"/>
+                <separator/>
+                <filter name="retained" string="Con retención" domain="[('retention_factor', '&lt;', 1)]"/>
+                <filter name="reversals" string="Reversas" domain="[('origin_move_id', '!=', False)]"/>
+                <filter name="refunds" string="Devoluciones" domain="[('is_refund', '=', True)]"/>
+                <filter name="group_partner" string="Comisionista" context="{'group_by': 'partner_id'}"/>
+                <filter name="group_order" string="Orden" context="{'group_by': 'sale_order_id'}"/>
+                <filter name="group_state" string="Estado" context="{'group_by': 'state'}"/>
+            </search>
         </field>
     </record>
 

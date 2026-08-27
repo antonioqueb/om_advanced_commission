@@ -1,0 +1,21 @@
+<odoo>
+    <record id="view_partner_form_commission" model="ir.ui.view">
+        <field name="name">res.partner.form.commission</field>
+        <field name="model">res.partner</field>
+        <field name="inherit_id" ref="base.view_partner_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//notebook[not(ancestor::field)]" position="inside">
+                <page string="Comisiones" name="commissions"
+                      groups="om_advanced_commission.group_commission_manager">
+                    <group>
+                        <group string="Liquidación">
+                            <field name="commission_payout_method"/>
+                            <field name="commission_product_id"
+                                   invisible="commission_payout_method != 'vendor_bill'"/>
+                        </group>
+                    </group>
+                </page>
+            </xpath>
+        </field>
+    </record>
+</odoo>

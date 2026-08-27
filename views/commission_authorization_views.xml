@@ -26,15 +26,30 @@
                     <group>
                         <group string="Solicitud">
                             <field name="sale_order_id" readonly="state != 'draft'"/>
+                            <field name="auth_type" readonly="state != 'draft'"/>
                             <field name="requested_by" readonly="1"/>
-                            <field name="authorizer_id"
+                            <field name="authorizer_id" readonly="state not in ['draft', 'pending']"
                                    groups="om_advanced_commission.group_commission_authorizer"/>
                         </group>
                         <group string="Comisión">
                             <field name="current_percent" readonly="1"/>
-                            <field name="requested_percent"/>
+                            <field name="requested_percent" readonly="state != 'draft'"/>
+                            <field name="approved_percent"
+                                   readonly="state != 'pending'"
+                                   invisible="state == 'draft'"
+                                   groups="om_advanced_commission.group_commission_authorizer"/>
+                            <field name="approved_percent" readonly="1"
+                                   invisible="state != 'approved'"
+                                   groups="!om_advanced_commission.group_commission_authorizer"/>
+                            <field name="authorized_by" readonly="1" invisible="not authorized_by"/>
+                            <field name="authorization_date" readonly="1" invisible="not authorization_date"/>
                         </group>
                     </group>
+                    <div class="alert alert-info" role="alert" invisible="state != 'pending'"
+                         groups="om_advanced_commission.group_commission_authorizer">
+                        Puedes aprobar un porcentaje menor al solicitado capturándolo en <strong>% Aprobado</strong>
+                        antes de pulsar Aprobar. Vacío = se aprueba el solicitado.
+                    </div>
                     <group string="Justificación">
                         <field name="justification" nolabel="1" colspan="2"
                                readonly="state not in ['draft']"/>
@@ -58,9 +73,11 @@
                   decoration-warning="state == 'pending'">
                 <field name="name"/>
                 <field name="sale_order_id"/>
+                <field name="auth_type"/>
                 <field name="requested_by"/>
-                <field name="current_percent" string="% Límite"/>
+                <field name="current_percent" string="% Permitido"/>
                 <field name="requested_percent" string="% Solicitado"/>
+                <field name="approved_percent" string="% Aprobado"/>
                 <field name="state" widget="badge"
                        decoration-success="state == 'approved'"
                        decoration-danger="state == 'rejected'"

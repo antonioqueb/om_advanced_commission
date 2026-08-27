@@ -4,204 +4,223 @@ import logging
 _logger = logging.getLogger(__name__)
 
 
+class AccountMove(models.Model):
+    _inherit = 'account.move'
+
+    def _commission_fallback_order(self):
+        """Orden de venta cuando las líneas de la factura no traen sale_line_ids
+        (nota de crédito manual, factura capturada a mano con origen)."""
+        self.ensure_one()
+        SO = self.env['sale.order'].sudo()
+        if self.reversed_entry_id:
+            sls = self.reversed_entry_id.invoice_line_ids.mapped('sale_line_ids')
+            if sls:
+                return sls.mapped('order_id')[:1]
+            origin = self.reversed_entry_id
+            if origin.invoice_origin:
+                so = SO.search([('name', 'in', [n.strip() for n in origin.invoice_origin.split(',')]),
+                                ('company_id', '=', self.company_id.id)], limit=1)
+                if so:
+                    return so
+        if self.invoice_origin:
+            return SO.search([('name', 'in', [n.strip() for n in self.invoice_origin.split(',')]),
+                              ('company_id', '=', self.company_id.id)], limit=1)
+        return SO.browse()
+
+    def _commission_orders(self):
+        """Órdenes (con reglas) a las que esta factura de cliente comisiona."""
+        self.ensure_one()
+        sos = self.invoice_line_ids.mapped('sale_line_ids.order_id')
+        if not sos:
+            sos = self._commission_fallback_order()
+        return sos.filtered(lambda s: s.commission_rule_ids)
+
+
 class AccountPartialReconcile(models.Model):
     _inherit = 'account.partial.reconcile'
 
-    def _create_commission_moves(self):
-        CommissionMove = self.env['commission.move'].sudo()
+    # ------------------------------------------------------------------
+    # Identificación factura / contraparte
+    # ------------------------------------------------------------------
+    def _commission_invoice_side(self):
+        """(factura_cliente, asiento_contraparte, línea_de_factura) o None."""
+        self.ensure_one()
+        debit, credit = self.debit_move_id, self.credit_move_id
+        for inv_line, other_line in ((debit, credit), (credit, debit)):
+            move = inv_line.move_id
+            if move.move_type in ('out_invoice', 'out_refund'):
+                if inv_line.account_id.account_type != 'asset_receivable':
+                    return None
+                # Factura contra su nota de crédito: no entra ni sale dinero,
+                # no hay comisión positiva ni negativa que devengar.
+                if other_line.move_id.move_type in ('out_invoice', 'out_refund'):
+                    return None
+                return move, other_line.move_id, inv_line
+        return None
 
+    def _commission_payment_ratio(self, invoice, inv_line):
+        """Parte del total de la factura (en su moneda) que cubre este partial."""
+        self.ensure_one()
+        company_cur = invoice.company_id.currency_id
+        if invoice.currency_id == company_cur:
+            reconciled = self.amount
+        else:
+            if inv_line == self.debit_move_id:
+                reconciled = abs(self.debit_amount_currency or 0.0)
+            else:
+                reconciled = abs(self.credit_amount_currency or 0.0)
+            reconciled = reconciled or self.amount
+        total = invoice.amount_total
+        if not total:
+            return 0.0
+        return min(reconciled / total, 1.0)
+
+    # ------------------------------------------------------------------
+    # Devengo
+    # ------------------------------------------------------------------
+    def _create_commission_moves(self):
         for rec in self:
             try:
-                debit_move = rec.debit_move_id
-                credit_move = rec.credit_move_id
-
-                invoice = debit_move.move_id
-                payment = credit_move.move_id
-
-                if invoice.move_type not in ('out_invoice', 'out_refund'):
-                    invoice, payment = payment, invoice
-                    debit_move, credit_move = credit_move, debit_move
-
-                if invoice.move_type not in ('out_invoice', 'out_refund'):
-                    _logger.debug(f"[COMM] partial {rec.id}: no es factura cliente, skip")
-                    continue
-
-                # La línea de la factura en el partial debe ser receivable
-                invoice_line = debit_move if debit_move.move_id == invoice else credit_move
-                if invoice_line.account_id.account_type != 'asset_receivable':
-                    _logger.debug(f"[COMM] partial {rec.id}: cuenta no receivable ({invoice_line.account_id.account_type}), skip")
-                    continue
-
-                is_refund = invoice.move_type == 'out_refund'
-                invoice_origin = invoice.reversed_entry_id if is_refund and invoice.reversed_entry_id else invoice
-
-                if invoice_origin.move_type not in ('out_invoice', 'out_refund'):
-                    continue
-
-                company = invoice_origin.company_id
-                company_currency = company.currency_id
-                invoice_currency = invoice_origin.currency_id
-
-                if invoice_currency == company_currency:
-                    amount_reconciled_inv_currency = rec.amount
-                else:
-                    if invoice_line == debit_move:
-                        amount_reconciled_inv_currency = (
-                            abs(rec.debit_amount_currency)
-                            if hasattr(rec, 'debit_amount_currency') and rec.debit_amount_currency
-                            else rec.amount
-                        )
-                    else:
-                        amount_reconciled_inv_currency = (
-                            abs(rec.credit_amount_currency)
-                            if hasattr(rec, 'credit_amount_currency') and rec.credit_amount_currency
-                            else rec.amount
-                        )
-
-                invoice_total = invoice_origin.amount_total
-                if invoice_total == 0:
-                    continue
-
-                payment_ratio = min(amount_reconciled_inv_currency / invoice_total, 1.0)
-                invoice_untaxed_mxn = abs(invoice_origin.amount_untaxed_signed)
-                paid_base_mxn = invoice_untaxed_mxn * payment_ratio
-
-                _logger.info(f"[COMM] partial {rec.id}: factura={invoice_origin.name}, ratio={round(payment_ratio,4)}, base_mxn={round(paid_base_mxn,2)}")
-
-                # --- Buscar SOs relacionadas ---
-                # Método 1: via líneas de factura -> sale_line_ids
-                sale_orders = self.env['sale.order'].browse()
+                rec.sudo()._commission_process()
+            except Exception as e:  # noqa: BLE001 — jamás tumbar la conciliación
+                _logger.error("[COMMISSION] Error en partial %s: %s", rec.id, e, exc_info=True)
                 try:
-                    sale_lines = invoice_origin.invoice_line_ids.mapped('sale_line_ids')
-                    if sale_lines:
-                        sale_orders = sale_lines.mapped('order_id').filtered(lambda so: so.commission_rule_ids)
-                except Exception:
-                    pass
+                    rec.sudo()._commission_report_error(e)
+                except Exception:  # noqa: BLE001
+                    _logger.exception("[COMMISSION] No se pudo reportar el error del partial %s", rec.id)
 
-                # Método 2: via sale_order.invoice_ids (Many2many en sale.order)
-                if not sale_orders:
-                    sale_orders = self.env['sale.order'].search([
-                        ('invoice_ids', 'in', [invoice_origin.id]),
-                        ('commission_rule_ids', '!=', False),
-                    ])
-                    _logger.info(f"[COMM] partial {rec.id}: fallback SO search result: {sale_orders.mapped('name')}")
+    def _commission_process(self):
+        self.ensure_one()
+        CommissionMove = self.env['commission.move'].sudo()
 
-                # Método 3: via líneas de la factura -> order_id en sale.order.line
-                if not sale_orders:
-                    inv_line_ids = invoice_origin.invoice_line_ids.ids
-                    if inv_line_ids:
-                        sol_ids = self.env['sale.order.line'].sudo().search([
-                            ('invoice_lines', 'in', inv_line_ids)
-                        ])
-                        if sol_ids:
-                            candidate_sos = sol_ids.mapped('order_id').filtered(lambda so: so.commission_rule_ids)
-                            if candidate_sos:
-                                sale_orders = candidate_sos
-                                _logger.info(f"[COMM] partial {rec.id}: método3 SOs: {sale_orders.mapped('name')}")
+        side = self._commission_invoice_side()
+        if not side:
+            return
+        invoice, counterpart, inv_line = side
+        if invoice.state != 'posted':
+            return
 
-                if not sale_orders:
-                    _logger.warning(f"[COMM] partial {rec.id}: sin SOs con reglas de comisión, skip")
+        is_refund = invoice.move_type == 'out_refund'
+        company = invoice.company_id
+        ccur = company.currency_id
+        ratio = self._commission_payment_ratio(invoice, inv_line)
+        if ratio <= 0:
+            return
+
+        # ── Base por LÍNEA de factura (moneda compañía, tipo de cambio de la
+        # factura), agrupada por orden de venta. Facturas parciales, multi-
+        # orden, precios ajustados al facturar y notas de crédito quedan
+        # resueltos aquí sin repartos por peso.
+        by_so = {}
+        fallback_so = None
+        for line in invoice.invoice_line_ids.filtered(lambda l: l.display_type == 'product'):
+            sale_line = line.sale_line_ids[:1]
+            so = sale_line.order_id
+            if not so:
+                if fallback_so is None:
+                    fallback_so = invoice._commission_fallback_order()
+                so = fallback_so
+            if not so:
+                continue
+            base_untaxed = abs(line.balance) * ratio
+            tax_factor = (line.price_total / line.price_subtotal) if line.price_subtotal else 1.0
+            by_so.setdefault(so, []).append((sale_line or None, base_untaxed, base_untaxed * tax_factor, line))
+
+        if not by_so:
+            _logger.debug("[COMM] partial %s: factura %s sin líneas ligadas a ventas", self.id, invoice.name)
+            return
+
+        payment_rec = self.env['account.payment'].search([('move_id', '=', counterpart.id)], limit=1)
+        sign = -1 if is_refund else 1
+
+        for so, entries in by_so.items():
+            if not so.commission_rule_ids:
+                continue
+            paid_lines = [(sl, bu, bt) for (sl, bu, bt, _l) in entries]
+            amounts = so._commission_amounts_for_payment(
+                paid_lines, ccur, apply_factors=True, date=invoice.invoice_date or invoice.date)
+            paid_base = sum(bu for (sl, bu, _bt) in paid_lines if not (sl and sl.no_commission))
+            first_line = entries[0][3]
+            seller_factor, ext_factor = so._commission_factors()
+
+            for rule, amount in amounts.items():
+                # Ya devengado para esta regla, o movimiento LEGADO (sin
+                # snapshot de regla) de la misma conciliación: no duplicar.
+                exists = CommissionMove.search_count([
+                    ('partial_reconcile_id', '=', self.id),
+                    ('partner_id', '=', rule.partner_id.id),
+                    ('sale_order_id', '=', so.id),
+                    ('rule_id', 'in', [rule.id, False]),
+                ], limit=1)
+                if exists:
                     continue
-
-                _logger.info(f"[COMM] partial {rec.id}: SOs a procesar: {sale_orders.mapped('name')}")
-
-                # --- Peso de cada SO dentro de la factura ---
-                so_weights = {}
-                total_weight = 0.0
-                for so in sale_orders:
-                    so_inv_lines = invoice_origin.invoice_line_ids.filtered(
-                        lambda l, _so=so: l.sale_line_ids & _so.order_line
-                    )
-                    weight = sum(abs(l.balance) for l in so_inv_lines) if so_inv_lines else 0.0
-
-                    if weight == 0.0:
-                        weight = so.currency_id._convert(
-                            so.amount_total, company_currency, company,
-                            so.date_order or fields.Date.today()
-                        )
-
-                    so_weights[so.id] = weight
-                    total_weight += weight
-
-                if total_weight == 0:
-                    _logger.warning(f"[COMM] partial {rec.id}: total_weight=0, skip")
+                commission_amount = amount * sign
+                if abs(commission_amount) < 0.005:
                     continue
+                factor = seller_factor if rule.role_type == 'internal' else ext_factor
+                CommissionMove.create({
+                    'partner_id': rule.partner_id.id,
+                    'sale_order_id': so.id,
+                    'invoice_id': invoice.id,
+                    'invoice_line_id': first_line.id,
+                    'payment_id': payment_rec.id if payment_rec else False,
+                    'partial_reconcile_id': self.id,
+                    'company_id': company.id,
+                    'amount': ccur.round(commission_amount),
+                    'base_amount_paid': ccur.round(paid_base * sign),
+                    'currency_id': ccur.id,
+                    'is_refund': is_refund,
+                    'state': 'draft',
+                    'date': self.max_date or fields.Date.context_today(self),
+                    'rule_id': rule.id,
+                    'rule_role': rule.role_type,
+                    'rule_base': rule.calculation_base,
+                    'rule_percent': rule.percent if rule.calculation_base != 'manual' else 0.0,
+                    'rule_fixed_amount': rule.fixed_amount if rule.calculation_base == 'manual' else 0.0,
+                    'retention_factor': factor,
+                    'name': f"Cmsn: {invoice.name} / {so.name} ({round(ratio * 100, 1)}%)",
+                })
+                _logger.info("[COMM] partial %s → %s %s: %.2f (factor %.3f)",
+                             self.id, so.name, rule.partner_id.display_name, commission_amount, factor)
 
-                payment_rec = self.env['account.payment'].search(
-                    [('move_id', '=', payment.id)], limit=1
-                )
+    # ------------------------------------------------------------------
+    # Observabilidad: el error deja de ser silencioso
+    # ------------------------------------------------------------------
+    def _commission_report_error(self, exc):
+        self.ensure_one()
+        side = self._commission_invoice_side()
+        invoice = side[0] if side else None
+        body = ("⚠️ Comisiones: no se pudo calcular la comisión de la conciliación #%s. "
+                "Detalle técnico: %s") % (self.id, str(exc)[:500])
+        managers = self.env['commission.move']._commission_manager_users()
+        targets = self.env['sale.order']
+        if invoice:
+            targets = invoice._commission_orders()
+        if not targets and invoice:
+            invoice.sudo().message_post(body=body, message_type='notification')
+            for user in managers:
+                invoice.sudo().activity_schedule(
+                    'mail.mail_activity_data_todo', user_id=user.id,
+                    summary='Comisión no calculada', note=body)
+        for so in targets:
+            so.sudo().message_post(body=body, message_type='notification')
+            for user in managers:
+                so.sudo().activity_schedule(
+                    'mail.mail_activity_data_todo', user_id=user.id,
+                    summary='Comisión no calculada', note=body)
 
-                sign = -1 if is_refund else 1
-
-                for so in sale_orders:
-                    so_ratio = so_weights[so.id] / total_weight
-                    so_paid_base = paid_base_mxn * so_ratio
-
-                    so_inv_lines = invoice_origin.invoice_line_ids.filtered(
-                        lambda l, _so=so: l.sale_line_ids & _so.order_line
-                    )
-                    best_inv_line = so_inv_lines[:1] if so_inv_lines else invoice_origin.invoice_line_ids[:1]
-
-                    for rule in so.commission_rule_ids:
-                        already = CommissionMove.search_count([
-                            ('partial_reconcile_id', '=', rec.id),
-                            ('partner_id', '=', rule.partner_id.id),
-                            ('sale_order_id', '=', so.id),
-                        ], limit=1)
-                        if already:
-                            _logger.info(f"[COMM] ya existe comisión partial={rec.id} partner={rule.partner_id.id} SO={so.id}, skip")
-                            continue
-
-                        if rule.calculation_base == 'manual':
-                            rule_amount_mxn = rule.currency_id._convert(
-                                rule.fixed_amount, company_currency, company,
-                                so.date_order or fields.Date.today()
-                            )
-                        else:
-                            rule_amount_mxn = so.currency_id._convert(
-                                rule.estimated_amount, company_currency, company,
-                                so.date_order or fields.Date.today()
-                            )
-
-                        so_total_mxn = so.currency_id._convert(
-                            so.amount_total, company_currency, company,
-                            so.date_order or fields.Date.today()
-                        )
-                        if so_total_mxn == 0:
-                            _logger.warning(f"[COMM] SO {so.id} amount_total=0, skip")
-                            continue
-
-                        paid_total_mxn_so = abs(invoice_origin.amount_total_signed) * payment_ratio * so_ratio
-                        final_ratio = paid_total_mxn_so / so_total_mxn
-                        commission_amount = rule_amount_mxn * final_ratio * sign
-
-                        _logger.info(f"[COMM] SO={so.name} rule={rule.id}: estimated={rule.estimated_amount}, rule_mxn={round(rule_amount_mxn,2)}, final_ratio={round(final_ratio,4)}, commission={round(commission_amount,2)}")
-
-                        if abs(commission_amount) < 0.01:
-                            _logger.warning(f"[COMM] commission_amount={commission_amount} < 0.01, skip")
-                            continue
-
-                        CommissionMove.create({
-                            'partner_id': rule.partner_id.id,
-                            'sale_order_id': so.id,
-                            'invoice_line_id': best_inv_line.id if best_inv_line else False,
-                            'payment_id': payment_rec.id if payment_rec else False,
-                            'partial_reconcile_id': rec.id,
-                            'company_id': company.id,
-                            'amount': commission_amount,
-                            'base_amount_paid': so_paid_base * sign,
-                            'currency_id': company_currency.id,
-                            'is_refund': is_refund,
-                            'state': 'draft',
-                            'name': f"Cmsn: {invoice.name} / {so.name} ({round(final_ratio * 100, 1)}%)",
-                        })
-                        _logger.info(f"[COMM] ✅ Creada comisión {so.name} partner={rule.partner_id.id}: {round(commission_amount,2)}")
-
-            except Exception as e:
-                _logger.error(f"[COMMISSION] Error en partial {rec.id}: {e}", exc_info=True)
-
+    # ------------------------------------------------------------------
+    # Ciclo de vida simétrico: desconciliar revierte
+    # ------------------------------------------------------------------
     @api.model_create_multi
     def create(self, vals_list):
         res = super().create(vals_list)
         res.sudo()._create_commission_moves()
         return res
+
+    def unlink(self):
+        moves = self.env['commission.move'].sudo().search([
+            ('partial_reconcile_id', 'in', self.ids)])
+        if moves:
+            moves._on_partial_unreconciled()
+        return super().unlink()

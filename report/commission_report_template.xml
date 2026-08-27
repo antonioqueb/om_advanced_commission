@@ -30,6 +30,7 @@
                                 <span t-esc="data['date_from']" t-options='{"widget": "date", "format": "dd MMM yyyy"}' class="ml-1 mr-1"/>
                                 —
                                 <span t-esc="data['date_to']" t-options='{"widget": "date", "format": "dd MMM yyyy"}' class="ml-1"/>
+                                <span t-if="basis_label" class="ml-1">(<t t-esc="basis_label"/>)</span>
                             </p>
                         </div>
                     </div>
@@ -120,13 +121,22 @@
                                               t-options='{"widget": "monetary", "display_currency": group["currency"]}'/>
                                     </td>
                                 </tr>
+                                <tr t-if="group['total_retained']" style="background-color: #fff8e6;">
+                                    <td colspan="8" class="text-end align-middle" style="padding: 4px 6px; font-size: 9.5px; color: #9a6a06;">
+                                        Excedente retenido por autorización pendiente (se libera al aprobarse):
+                                    </td>
+                                    <td class="som-num align-middle" style="padding: 4px 6px; font-size: 9.5px; color: #9a6a06; font-weight: 700;">
+                                        <span t-esc="group['total_retained']"
+                                              t-options='{"widget": "monetary", "display_currency": group["currency"]}'/>
+                                    </td>
+                                </tr>
                             </tfoot>
                         </table>
                     </t>
 
                     <div t-if="not docs" class="alert alert-secondary mt-5 text-center p-5 shadow-sm">
                         <h4 class="alert-heading">Sin Información</h4>
-                        <p>No se encontraron comisiones aprobadas o pendientes para este rango de fechas.</p>
+                        <p>No se encontraron comisiones para este rango de fechas.</p>
                     </div>
 
                     <!-- NOTA LEGAL / DISCLAIMER -->

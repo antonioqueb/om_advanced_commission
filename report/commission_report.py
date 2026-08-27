@@ -1,7 +1,3 @@
-from datetime import datetime, time as dtime
-
-import pytz
-
 from odoo import fields, models, api
 from odoo.tools.misc import format_date
 
@@ -16,6 +12,7 @@ class ReportCommissionPDF(models.AbstractModel):
         date_from = data.get('date_from')
         date_to = data.get('date_to')
         partner_ids = data.get('partner_ids')
+        basis = data.get('date_basis') or 'order'
 
         if not date_from or not date_to:
             return {
@@ -24,68 +21,42 @@ class ReportCommissionPDF(models.AbstractModel):
                 'data': data,
                 'docs': [],
                 'company': self.env.company,
+                'basis_label': '',
             }
 
-        # FECHA DE NEGOCIO: el periodo se corta por la FECHA DE LA ORDEN
-        # (date_order), no por la fecha del movimiento de comisión — esa nace
-        # al cobrarse y arrastraba ventas de meses pasados al mes en curso.
-        # date_order es Datetime en UTC: los límites del día se convierten
-        # desde la zona horaria del usuario para no perder/robar órdenes en
-        # los bordes del mes. Movimientos sin orden (ajustes manuales) se
-        # cortan por su propia fecha.
+        Move = self.env['commission.move']
         date_from_d = fields.Date.to_date(date_from)
         date_to_d = fields.Date.to_date(date_to)
-        tz = pytz.timezone(self.env.user.tz or 'America/Mexico_City')
-        start_utc = tz.localize(
-            datetime.combine(date_from_d, dtime.min)
-        ).astimezone(pytz.utc).replace(tzinfo=None)
-        end_utc = tz.localize(
-            datetime.combine(date_to_d, dtime.max)
-        ).astimezone(pytz.utc).replace(tzinfo=None)
 
+        # Un solo reloj, dos vistas explícitas: por fecha de VENTA (date_order)
+        # o por fecha de COBRO (lo que paga la liquidación).
         domain = [
             ('state', '!=', 'cancel'),
             ('company_id', '=', self.env.company.id),
-            '|',
-                '&', ('sale_order_id', '!=', False),
-                     '&', ('sale_order_id.date_order', '>=', start_utc),
-                          ('sale_order_id.date_order', '<=', end_utc),
-                '&', ('sale_order_id', '=', False),
-                     '&', ('date', '>=', date_from),
-                          ('date', '<=', date_to),
-        ]
+        ] + Move._commission_period_domain(date_from_d, date_to_d, basis)
 
-        # CANDADO DE PROPIEDAD: quien no es autorizador SOLO puede imprimir
-        # sus propias comisiones, sin importar qué traiga `data` (el wizard
-        # ya lo fuerza, esto lo garantiza aunque el reporte se invoque por
-        # otra vía). El mismo criterio que la record rule del modelo.
-        if self.env.user.has_group(
-                'om_advanced_commission.group_commission_authorizer'):
+        # CANDADO DE PROPIEDAD: quien no es autorizador SOLO imprime sus
+        # propias comisiones, sin importar qué traiga `data`.
+        if self.env.user.has_group('om_advanced_commission.group_commission_authorizer'):
             if partner_ids:
                 domain.append(('partner_id', 'in', partner_ids))
         else:
-            domain.append(
-                ('partner_id.user_ids', 'in', [self.env.user.id]))
+            domain.append(('partner_id.user_ids', 'in', [self.env.user.id]))
 
-        moves = self.env['commission.move'].search(domain, order='partner_id, date, id')
+        moves = Move.search(domain, order='partner_id, date, id')
 
-        # DATOS CONTABLES CON SUDO: el vendedor no tiene (ni debe tener)
-        # permisos de contabilidad, y la plantilla leia factura/pago como
-        # usuario -> AccessError de contabilidad al imprimir 'Mis
-        # Comisiones'. Aqui se extraen SOLO folio y fechas, nada mas del
-        # universo contable, y la plantilla los recibe ya resueltos.
+        # Datos contables con sudo: el vendedor no tiene permisos de
+        # contabilidad; solo se extraen folio y fechas.
         acct = {}
         for move in moves:
             sm = move.sudo()
-            inv = sm.invoice_line_id.move_id
+            inv = sm.invoice_id or sm.invoice_line_id.move_id
             pay = sm.payment_id
             acct[move.id] = {
-                'invoice_date': format_date(
-                    self.env, inv.invoice_date, date_format='dd MMM yyyy')
+                'invoice_date': format_date(self.env, inv.invoice_date, date_format='dd MMM yyyy')
                 if inv and inv.invoice_date else '',
                 'invoice_name': (inv.name or '') if inv else '',
-                'payment_date': format_date(
-                    self.env, pay.date, date_format='dd MMM yyyy')
+                'payment_date': format_date(self.env, pay.date, date_format='dd MMM yyyy')
                 if pay and pay.date else '',
             }
 
@@ -99,11 +70,16 @@ class ReportCommissionPDF(models.AbstractModel):
                     'moves': [],
                     'total_base': 0.0,
                     'total_commission': 0.0,
+                    'total_retained': 0.0,
                 }
-            grouped_data[partner.id]['moves'].append(move)
-            grouped_data[partner.id]['total_base'] += move.base_amount_paid
-            grouped_data[partner.id]['total_commission'] += move.amount
+            g = grouped_data[partner.id]
+            g['moves'].append(move)
+            g['total_base'] += move.base_amount_paid
+            g['total_commission'] += move.amount
+            if move.retention_factor and 0 < move.retention_factor < 1.0:
+                g['total_retained'] += move.amount / move.retention_factor - move.amount
 
+        basis_label = ('por fecha de cobro' if basis == 'payment' else 'por fecha de venta')
         return {
             'doc_ids': docids,
             'doc_model': 'commission.report.wizard',
@@ -111,4 +87,5 @@ class ReportCommissionPDF(models.AbstractModel):
             'docs': grouped_data.values(),
             'acct': acct,
             'company': self.env.company,
+            'basis_label': basis_label,
         }

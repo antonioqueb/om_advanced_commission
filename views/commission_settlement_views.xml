@@ -8,8 +8,13 @@
                     <button name="action_approve" string="Aprobar" type="object"
                             invisible="state != 'draft'" class="btn-primary"/>
                     <button name="action_create_bill" string="Generar Factura Proveedor" type="object"
-                            invisible="state != 'approved'" class="btn-primary"/>
-                    <field name="state" widget="statusbar"/>
+                            invisible="state != 'approved' or payout_method not in ['vendor_bill', False]" class="btn-primary"/>
+                    <button name="action_mark_paid" string="Marcar Pagada" type="object"
+                            invisible="state != 'approved' or payout_method in ['vendor_bill', False]" class="btn-primary"/>
+                    <button name="action_cancel" string="Cancelar" type="object"
+                            invisible="state == 'cancel'" class="btn-secondary"
+                            confirm="Los movimientos regresarán a Pendiente. ¿Cancelar la liquidación?"/>
+                    <field name="state" widget="statusbar" statusbar_visible="draft,approved,invoiced"/>
                 </header>
                 <sheet>
                     <div class="oe_title">
@@ -18,26 +23,54 @@
                     <group>
                         <group>
                             <field name="partner_id" readonly="state != 'draft'"/>
+                            <field name="payout_method"/>
                             <field name="date" readonly="state != 'draft'"/>
                         </group>
                         <group>
+                            <field name="currency_id" invisible="1"/>
                             <field name="total_amount"/>
-                            <field name="vendor_bill_id" readonly="1"/>
+                            <field name="vendor_bill_id" readonly="1" invisible="not vendor_bill_id"/>
+                            <field name="payment_reference" readonly="state == 'invoiced'"
+                                   invisible="payout_method == 'vendor_bill'"/>
+                            <field name="paid_date" readonly="1" invisible="not paid_date"/>
                         </group>
                     </group>
                     <notebook>
                         <page string="Detalle de Movimientos">
                             <field name="move_ids" readonly="1">
-                                <list>
+                                <list decoration-danger="amount &lt; 0">
+                                    <field name="name"/>
                                     <field name="sale_order_id"/>
+                                    <field name="invoice_name"/>
                                     <field name="date"/>
-                                    <field name="amount"/>
+                                    <field name="rule_role"/>
+                                    <field name="base_amount_paid" sum="Base"/>
+                                    <field name="amount" sum="Total"/>
+                                    <field name="origin_move_id"/>
                                 </list>
                             </field>
                         </page>
                     </notebook>
                 </sheet>
+                <chatter/>
             </form>
+        </field>
+    </record>
+
+    <record id="view_commission_settlement_list" model="ir.ui.view">
+        <field name="name">commission.settlement.list</field>
+        <field name="model">commission.settlement</field>
+        <field name="arch" type="xml">
+            <list>
+                <field name="name"/>
+                <field name="partner_id"/>
+                <field name="date"/>
+                <field name="payout_method"/>
+                <field name="total_amount" sum="Total"/>
+                <field name="currency_id" column_invisible="1"/>
+                <field name="state" widget="badge" decoration-success="state == 'invoiced'"
+                       decoration-info="state == 'approved'" decoration-muted="state == 'cancel'"/>
+            </list>
         </field>
     </record>
 

@@ -12,7 +12,8 @@
                             <label for="commission_product_id"/>
                             <field name="commission_product_id"/>
                             <div class="text-muted">
-                                Producto servicio usado en facturas de proveedor.
+                                Producto servicio usado en facturas de proveedor. Sus impuestos de proveedor
+                                (retenciones ISR/IVA) se aplican a la factura del comisionista.
                             </div>
                         </div>
                     </div>
@@ -20,6 +21,24 @@
                         <div class="o_setting_right_pane">
                             <label for="commission_journal_id"/>
                             <field name="commission_journal_id"/>
+                        </div>
+                    </div>
+                    <div class="col-12 col-lg-6 o_setting_box">
+                        <div class="o_setting_right_pane">
+                            <label for="commission_seller_max_percent"/>
+                            <field name="commission_seller_max_percent"/>
+                            <div class="text-muted">
+                                Total de vendedores internos que se paga sin autorización (órdenes nuevas).
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-12 col-lg-6 o_setting_box">
+                        <div class="o_setting_right_pane">
+                            <label for="commission_external_max_percent"/>
+                            <field name="commission_external_max_percent"/>
+                            <div class="text-muted">
+                                Tope de comisiones externas como % del subtotal. 0 = sin tope.
+                            </div>
                         </div>
                     </div>
                 </div>

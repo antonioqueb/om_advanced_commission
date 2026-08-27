@@ -15,6 +15,7 @@ export class CommissionDashboard extends Component {
             loading: true,
             month: null,          // 'YYYY-MM'; null = mes actual
             partnerId: false,     // filtro por vendedor (solo autorizadores)
+            basis: "order",       // 'order' = fecha de venta · 'payment' = fecha de cobro
             data: null,
         });
         onWillStart(() => this.load());
@@ -30,6 +31,7 @@ export class CommissionDashboard extends Component {
                 {
                     month: this.state.month,
                     partner_id: this.state.partnerId || null,
+                    basis: this.state.basis,
                 }
             );
             this.state.month = this.state.data.month;
@@ -43,6 +45,11 @@ export class CommissionDashboard extends Component {
         const d = new Date(y, m - 1 + delta, 1);
         this.state.month =
             d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0");
+        this.load();
+    }
+
+    onBasisChange(ev) {
+        this.state.basis = ev.target.value === "payment" ? "payment" : "order";
         this.load();
     }
 

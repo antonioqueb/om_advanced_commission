@@ -1,12 +1,12 @@
 from odoo import models, fields, api
-from odoo.exceptions import ValidationError
+from odoo.exceptions import UserError
 
 
 class SaleCommissionRule(models.Model):
     _name = 'sale.commission.rule'
     _description = 'Regla de Comisión en Ventas'
 
-    sale_order_id = fields.Many2one('sale.order', ondelete='cascade')
+    sale_order_id = fields.Many2one('sale.order', ondelete='cascade', index=True)
     partner_id = fields.Many2one('res.partner', string='Beneficiario', required=True)
 
     role_type = fields.Selection([
@@ -27,66 +27,132 @@ class SaleCommissionRule(models.Model):
     percent = fields.Float(string='Porcentaje %')
     fixed_amount = fields.Monetary(string='Monto Fijo', currency_field='currency_id')
 
+    # Posición del vendedor interno (1..3) que originó esta regla: permite
+    # sincronizar EN SITIO (sin destruir/recrear) cuando cambian los campos
+    # seller*_id / seller*_percent de la orden, conservando id, autorización
+    # e historial.
+    seller_slot = fields.Integer(string='Posición Vendedor', readonly=True)
+
+    # Estimado si se cobrara el 100% de la orden, YA con los factores de
+    # retención (lo que realmente se pagaría hoy). raw = sin retención.
     estimated_amount = fields.Monetary(compute='_compute_estimated', string='Estimado Total')
+    raw_estimated_amount = fields.Monetary(compute='_compute_estimated', string='Estimado sin retención')
+    effective_percent = fields.Float(compute='_compute_estimated', string='% Efectivo',
+                                     help='Porcentaje que realmente se aplica hoy (tras retención por autorización pendiente).')
     currency_id = fields.Many2one(related='sale_order_id.currency_id')
 
     requires_authorization = fields.Boolean(string='Requiere Autorización', default=False, readonly=True)
     authorization_id = fields.Many2one('commission.authorization', string='Autorización', readonly=True)
 
-    @api.depends('percent', 'fixed_amount', 'calculation_base',
+    # ------------------------------------------------------------------
+    # Cálculo
+    # ------------------------------------------------------------------
+    def _commission_amount(self, bases, fixed_converted, external_total):
+        """Monto de esta regla para un conjunto de bases (todas en la misma
+        moneda). `bases` = dict con untaxed / total / margin / manual_share.
+        `fixed_converted` = monto fijo ya en la moneda destino.
+        `external_total` = comisiones externas ya calculadas en esa moneda
+        (solo lo usa gross_utility)."""
+        self.ensure_one()
+        pct = (self.percent or 0.0) / 100.0
+        base = self.calculation_base
+        if base == 'manual':
+            return (fixed_converted or 0.0) * (bases.get('manual_share') or 0.0)
+        if base == 'amount_untaxed':
+            return (bases.get('untaxed') or 0.0) * pct
+        if base == 'amount_total':
+            return (bases.get('total') or 0.0) * pct
+        if base == 'margin':
+            return (bases.get('margin') or 0.0) * pct
+        if base == 'gross_utility':
+            return ((bases.get('untaxed') or 0.0) - (external_total or 0.0)) * pct
+        return 0.0
+
+    @api.depends('percent', 'fixed_amount', 'calculation_base', 'role_type', 'partner_id',
                  'sale_order_id.amount_untaxed', 'sale_order_id.amount_total',
                  'sale_order_id.order_line.price_subtotal',
+                 'sale_order_id.order_line.price_total',
+                 'sale_order_id.order_line.no_commission',
                  'sale_order_id.commission_rule_ids.percent',
                  'sale_order_id.commission_rule_ids.fixed_amount',
                  'sale_order_id.commission_rule_ids.calculation_base',
-                 'sale_order_id.commission_rule_ids.role_type')
+                 'sale_order_id.commission_rule_ids.role_type',
+                 'sale_order_id.seller1_percent', 'sale_order_id.seller2_percent',
+                 'sale_order_id.seller3_percent',
+                 'sale_order_id.commission_allowed_seller_percent',
+                 'sale_order_id.commission_allowed_external_percent')
     def _compute_estimated(self):
-        for rule in self:
-            so = rule.sale_order_id
-            amount = 0.0
-            lines = so.order_line.filtered(lambda l: not getattr(l, 'no_commission', False))
+        for so in self.mapped('sale_order_id'):
+            paid_lines = so._commission_full_order_lines()
+            raw = so._commission_amounts_for_payment(paid_lines, so.currency_id, apply_factors=False)
+            eff = so._commission_amounts_for_payment(paid_lines, so.currency_id, apply_factors=True)
+            subtotal = sum(pl[1] for pl in paid_lines if not (pl[0] and pl[0].no_commission))
+            for rule in self.filtered(lambda r: r.sale_order_id == so):
+                rule.raw_estimated_amount = raw.get(rule, 0.0)
+                rule.estimated_amount = eff.get(rule, 0.0)
+                rule.effective_percent = (
+                    rule.estimated_amount / subtotal * 100.0 if subtotal else 0.0)
+        for rule in self.filtered(lambda r: not r.sale_order_id):
+            rule.raw_estimated_amount = rule.estimated_amount = 0.0
+            rule.effective_percent = 0.0
 
-            if rule.calculation_base == 'manual':
-                amount = rule.fixed_amount
+    # ------------------------------------------------------------------
+    # Congelación tras confirmar + bitácora en el chatter de la orden
+    # ------------------------------------------------------------------
+    def _commission_check_locked(self, orders):
+        """Una orden confirmada solo cambia sus reglas por un administrador
+        de comisiones. La sincronización interna (seller*_ → reglas) pasa con
+        el contexto commission_sync porque el cambio de origen ya se validó
+        y ya quedó en tracking."""
+        if self.env.context.get('commission_sync') or self.env.su:
+            return
+        locked = orders.filtered(lambda s: s.state in ('sale', 'done'))
+        if locked and not self.env.user.has_group('om_advanced_commission.group_commission_manager'):
+            raise UserError(
+                "Las reglas de comisión de una orden confirmada están congeladas. "
+                "Solo un Administrador de Comisiones puede modificarlas (%s)."
+                % ', '.join(locked.mapped('name')))
 
-            elif rule.calculation_base == 'amount_untaxed':
-                base = sum(lines.mapped('price_subtotal'))
-                amount = base * (rule.percent / 100.0)
+    def _commission_describe(self):
+        self.ensure_one()
+        role = dict(self._fields['role_type'].selection).get(self.role_type, self.role_type)
+        base = dict(self._fields['calculation_base'].selection).get(self.calculation_base, '')
+        if self.calculation_base == 'manual':
+            val = '%s fijo' % (self.fixed_amount or 0.0)
+        else:
+            val = '%s %%' % (self.percent or 0.0)
+        return '%s · %s · %s · %s' % (role, self.partner_id.display_name, base, val)
 
-            elif rule.calculation_base == 'amount_total':
-                base = sum(lines.mapped('price_total'))
-                amount = base * (rule.percent / 100.0)
+    def _commission_log(self, action, details=None):
+        if self.env.context.get('commission_sync'):
+            return
+        for rule in self.filtered(lambda r: r.sale_order_id and isinstance(r.sale_order_id.id, int)):
+            body = '%s regla de comisión: %s' % (action, details or rule._commission_describe())
+            rule.sale_order_id.sudo().message_post(body=body, message_type='notification')
 
-            elif rule.calculation_base == 'margin':
-                base = 0.0
-                try:
-                    if lines and 'margin' in lines[0]._fields:
-                        base = sum(lines.mapped('margin'))
-                    elif 'margin' in so._fields:
-                        base = so.margin
-                except (AttributeError, KeyError):
-                    base = 0.0
-                amount = base * (rule.percent / 100.0)
+    @api.model_create_multi
+    def create(self, vals_list):
+        orders = self.env['sale.order'].browse(
+            [v['sale_order_id'] for v in vals_list if v.get('sale_order_id')])
+        self._commission_check_locked(orders)
+        rules = super().create(vals_list)
+        rules._commission_log('Agregada')
+        return rules
 
-            elif rule.calculation_base == 'gross_utility':
-                # Utilidad bruta = Subtotal - todas las comisiones externas
-                # (embajadores, constructoras, referidores, y otros vendedores internos)
-                subtotal = sum(lines.mapped('price_subtotal'))
+    def write(self, vals):
+        tracked = {'partner_id', 'role_type', 'calculation_base', 'percent', 'fixed_amount'}
+        if tracked & set(vals):
+            self._commission_check_locked(self.mapped('sale_order_id'))
+            before = {r.id: r._commission_describe() for r in self}
+            res = super().write(vals)
+            for rule in self:
+                after = rule._commission_describe()
+                if before.get(rule.id) != after:
+                    rule._commission_log('Modificada', '%s  →  %s' % (before.get(rule.id), after))
+            return res
+        return super().write(vals)
 
-                # Sumar comisiones de roles NO internos (embajador, constructora, referidor)
-                external_commission = 0.0
-                for other in so.commission_rule_ids:
-                    if other.id == rule.id:
-                        continue
-                    if other.role_type != 'internal':
-                        if other.calculation_base == 'manual':
-                            external_commission += other.fixed_amount
-                        elif other.calculation_base in ('amount_untaxed', 'gross_utility'):
-                            external_commission += subtotal * (other.percent / 100.0)
-                        elif other.calculation_base == 'amount_total':
-                            external_commission += sum(lines.mapped('price_total')) * (other.percent / 100.0)
-
-                gross_utility = subtotal - external_commission
-                amount = gross_utility * (rule.percent / 100.0)
-
-            rule.estimated_amount = amount
+    def unlink(self):
+        self._commission_check_locked(self.mapped('sale_order_id'))
+        self._commission_log('Eliminada')
+        return super().unlink()

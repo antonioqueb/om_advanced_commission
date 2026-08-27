@@ -18,6 +18,10 @@
                 </div>
             </div>
             <div class="om-comm-controls" t-if="state.data">
+                <select class="om-comm-select" t-on-change="onBasisChange" title="Cómo se corta el periodo">
+                    <option value="order" t-att-selected="state.basis === 'order' ? 'selected' : undefined">Por fecha de venta</option>
+                    <option value="payment" t-att-selected="state.basis === 'payment' ? 'selected' : undefined">Por fecha de cobro</option>
+                </select>
                 <select t-if="state.data.is_authorizer"
                         class="om-comm-select"
                         t-on-change="onSellerChange">
@@ -89,6 +93,12 @@
                         <t t-esc="state.data.currency_symbol"/><t t-esc="fmt(state.data.kpis.invoiced)"/>
                     </span>
                 </div>
+                <div class="om-comm-kpi" t-if="state.data.kpis.retained">
+                    <span class="om-comm-kpi-label">Retenido (por autorizar)</span>
+                    <span class="om-comm-kpi-value om-comm-amber">
+                        <t t-esc="state.data.currency_symbol"/><t t-esc="fmt(state.data.kpis.retained)"/>
+                    </span>
+                </div>
             </div>
 
             <!-- Tabla -->
@@ -130,6 +140,8 @@
                             <td>
                                 <span t-att-class="'om-comm-badge ' + stateBadge(row.state).cls"
                                       t-esc="stateBadge(row.state).label"/>
+                                <span t-if="row.retained" class="om-comm-badge om-comm-badge-retained"
+                                      title="Excedente retenido por autorización pendiente">Retenido</span>
                             </td>
                         </tr>
                     </tbody>

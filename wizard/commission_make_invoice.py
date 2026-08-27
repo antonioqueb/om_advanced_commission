@@ -5,7 +5,8 @@ class CommissionMakeInvoice(models.TransientModel):
     _name = 'commission.make.invoice'
     _description = 'Asistente para Generar Liquidación'
 
-    date_to = fields.Date(string='Hasta fecha', default=fields.Date.context_today)
+    date_to = fields.Date(string='Hasta fecha (de cobro)', default=fields.Date.context_today,
+                          help='Se liquidan los movimientos pendientes con fecha de cobro hasta este día.')
     partner_ids = fields.Many2many('res.partner', string='Comisionistas')
 
     def action_generate_settlements(self):
@@ -18,27 +19,47 @@ class CommissionMakeInvoice(models.TransientModel):
 
         moves = Move.search(domain)
 
-        # Agrupar por (partner_id, currency_id, company_id) usando IDs
+        # Agrupar por (partner_id, currency_id, company_id)
         grouped = {}
         for m in moves:
             key = (m.partner_id.id, m.currency_id.id, m.company_id.id)
-            if key not in grouped:
-                grouped[key] = self.env['commission.move']
+            grouped.setdefault(key, Move)
             grouped[key] |= m
 
         created_settlements = Settlement
+        deferred = []
         for (partner_id, currency_id, company_id), partner_moves in grouped.items():
             partner = self.env['res.partner'].browse(partner_id)
+            currency = self.env['res.currency'].browse(currency_id)
+            total = sum(partner_moves.mapped('amount'))
+            # Saldo en contra (reversas/devoluciones > devengado): se difiere,
+            # los movimientos siguen pendientes y netean en el siguiente corte.
+            if currency.compare_amounts(total, 0.0) <= 0:
+                deferred.append('%s (%s)' % (partner.display_name, currency.round(total)))
+                continue
             settlement = Settlement.create({
                 'partner_id': partner_id,
                 'currency_id': currency_id,
                 'company_id': company_id,
+                'date': self.date_to,
                 'name': f"LIQ-{fields.Date.today()}-{partner.name}",
                 'state': 'draft',
                 'move_ids': [(6, 0, partner_moves.ids)],
             })
             partner_moves.write({'state': 'settled'})
             created_settlements |= settlement
+
+        if deferred:
+            for s in created_settlements:
+                s.message_post(body='Diferidos por saldo en contra en este corte: %s' % ', '.join(deferred))
+        if not created_settlements:
+            msg = 'Sin movimientos pendientes que liquidar.'
+            if deferred:
+                msg = 'Nada que liquidar. Diferidos por saldo en contra: %s' % ', '.join(deferred)
+            return {
+                'type': 'ir.actions.client', 'tag': 'display_notification',
+                'params': {'title': 'Liquidaciones', 'message': msg, 'type': 'warning', 'sticky': bool(deferred)},
+            }
 
         return {
             'type': 'ir.actions.act_window',
