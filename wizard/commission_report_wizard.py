@@ -13,7 +13,8 @@ class CommissionReportWizard(models.TransientModel):
         ('order', 'Por fecha de venta (devengado por orden)'),
         ('payment', 'Por fecha de cobro (lo que paga la liquidación)'),
     ], string='Periodo según', required=True, default='order')
-    partner_ids = fields.Many2many('res.partner', string='Vendedores',
+    partner_ids = fields.Many2many('res.partner', string='Comisionistas',
+                                   domain=lambda self: self.env['res.partner']._commission_beneficiary_domain(),
                                    help="Dejar vacío para imprimir todos")
     is_authorizer = fields.Boolean(compute='_compute_is_authorizer')
 

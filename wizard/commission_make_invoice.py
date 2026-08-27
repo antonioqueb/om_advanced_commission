@@ -7,7 +7,8 @@ class CommissionMakeInvoice(models.TransientModel):
 
     date_to = fields.Date(string='Hasta fecha (de cobro)', default=fields.Date.context_today,
                           help='Se liquidan los movimientos pendientes con fecha de cobro hasta este día.')
-    partner_ids = fields.Many2many('res.partner', string='Comisionistas')
+    partner_ids = fields.Many2many('res.partner', string='Comisionistas',
+                                   domain=lambda self: self.env['res.partner']._commission_beneficiary_domain())
 
     def action_generate_settlements(self):
         Move = self.env['commission.move']

@@ -9,7 +9,8 @@ class CommissionSettlement(models.Model):
     _order = 'date desc, id desc'
 
     name = fields.Char(string='Referencia', default='Borrador', copy=False)
-    partner_id = fields.Many2one('res.partner', string='Beneficiario', required=True)
+    partner_id = fields.Many2one('res.partner', string='Beneficiario', required=True,
+                                 domain=lambda self: self.env['res.partner']._commission_beneficiary_domain())
     company_id = fields.Many2one('res.company', string='Compañía', required=True, default=lambda self: self.env.company)
     date = fields.Date(string='Fecha Corte', default=fields.Date.context_today)
 
