@@ -78,10 +78,12 @@ class AccountPartialReconcile(models.Model):
     # ------------------------------------------------------------------
     # Devengo
     # ------------------------------------------------------------------
-    def _create_commission_moves(self):
+    def _create_commission_moves(self, refresh=False):
+        """refresh=True: además de crear lo faltante, alinea lo existente al
+        monto que hoy dan las reglas/autorizaciones (ajustes por delta)."""
         for rec in self:
             try:
-                rec.sudo()._commission_process()
+                rec.sudo()._commission_process(refresh=refresh)
             except Exception as e:  # noqa: BLE001 — jamás tumbar la conciliación
                 _logger.error("[COMMISSION] Error en partial %s: %s", rec.id, e, exc_info=True)
                 try:
@@ -89,7 +91,7 @@ class AccountPartialReconcile(models.Model):
                 except Exception:  # noqa: BLE001
                     _logger.exception("[COMMISSION] No se pudo reportar el error del partial %s", rec.id)
 
-    def _commission_process(self):
+    def _commission_process(self, refresh=False):
         self.ensure_one()
         CommissionMove = self.env['commission.move'].sudo()
 
@@ -144,20 +146,33 @@ class AccountPartialReconcile(models.Model):
             seller_factor, ext_factor = so._commission_factors()
 
             for rule, amount in amounts.items():
+                commission_amount = ccur.round(amount * sign)
+                factor = seller_factor if rule.role_type == 'internal' else ext_factor
+                snapshot = {
+                    'rule_id': rule.id,
+                    'rule_role': rule.role_type,
+                    'rule_base': rule.calculation_base,
+                    'rule_percent': rule.percent if rule.calculation_base != 'manual' else 0.0,
+                    'rule_fixed_amount': rule.fixed_amount if rule.calculation_base == 'manual' else 0.0,
+                    'retention_factor': factor,
+                }
                 # Ya devengado para esta regla, o movimiento LEGADO (sin
                 # snapshot de regla) de la misma conciliación: no duplicar.
-                exists = CommissionMove.search_count([
+                originals = CommissionMove.search([
                     ('partial_reconcile_id', '=', self.id),
                     ('partner_id', '=', rule.partner_id.id),
                     ('sale_order_id', '=', so.id),
                     ('rule_id', 'in', [rule.id, False]),
-                ], limit=1)
-                if exists:
+                    ('origin_move_id', '=', False),
+                    ('state', '!=', 'cancel'),
+                ])
+                if originals:
+                    if refresh:
+                        originals[0]._commission_apply_expected(
+                            commission_amount, snapshot, 'reglas o autorización actualizadas')
                     continue
-                commission_amount = amount * sign
                 if abs(commission_amount) < 0.005:
                     continue
-                factor = seller_factor if rule.role_type == 'internal' else ext_factor
                 CommissionMove.create({
                     'partner_id': rule.partner_id.id,
                     'sale_order_id': so.id,
@@ -166,19 +181,14 @@ class AccountPartialReconcile(models.Model):
                     'payment_id': payment_rec.id if payment_rec else False,
                     'partial_reconcile_id': self.id,
                     'company_id': company.id,
-                    'amount': ccur.round(commission_amount),
+                    'amount': commission_amount,
                     'base_amount_paid': ccur.round(paid_base * sign),
                     'currency_id': ccur.id,
                     'is_refund': is_refund,
                     'state': 'draft',
                     'date': self.max_date or fields.Date.context_today(self),
-                    'rule_id': rule.id,
-                    'rule_role': rule.role_type,
-                    'rule_base': rule.calculation_base,
-                    'rule_percent': rule.percent if rule.calculation_base != 'manual' else 0.0,
-                    'rule_fixed_amount': rule.fixed_amount if rule.calculation_base == 'manual' else 0.0,
-                    'retention_factor': factor,
                     'name': f"Cmsn: {invoice.name} / {so.name} ({round(ratio * 100, 1)}%)",
+                    **snapshot,
                 })
                 _logger.info("[COMM] partial %s → %s %s: %.2f (factor %.3f)",
                              self.id, so.name, rule.partner_id.display_name, commission_amount, factor)

@@ -112,6 +112,8 @@ class CommissionAuthorization(models.Model):
                 field: max(approved, so[field] or 0.0),
                 'commission_authorization_id': rec.id,
             })
+            # Tiempo real: el excedente retenido se libera en este instante.
+            so._commission_refresh()
             rec._close_activities()
             body = "✅ Autorización aprobada por %s: %s%% permitido (%s)" % (
                 self.env.user.name, approved, dict(rec._fields['auth_type'].selection)[rec.auth_type])

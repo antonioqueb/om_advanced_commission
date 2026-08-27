@@ -15,6 +15,7 @@
                 <field name="amount" sum="Total"/>
                 <field name="retention_factor" optional="hide"/>
                 <field name="origin_move_id" optional="hide"/>
+                <field name="adjustment_kind" optional="hide"/>
                 <field name="settlement_id" optional="hide" groups="om_advanced_commission.group_commission_manager"/>
                 <field name="currency_id" column_invisible="1"/>
                 <field name="state" widget="badge" decoration-success="state == 'invoiced'"
@@ -68,8 +69,9 @@
                     </group>
                     <group string="Reversas" invisible="not origin_move_id and not reversal_ids">
                         <field name="origin_move_id" readonly="1" invisible="not origin_move_id"/>
+                        <field name="adjustment_kind" readonly="1" invisible="not origin_move_id"/>
                         <field name="reversal_ids" readonly="1" invisible="not reversal_ids">
-                            <list><field name="name"/><field name="date"/><field name="amount"/><field name="state"/></list>
+                            <list><field name="name"/><field name="adjustment_kind"/><field name="date"/><field name="amount"/><field name="state"/></list>
                         </field>
                     </group>
                 </sheet>

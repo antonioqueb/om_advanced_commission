@@ -7,7 +7,7 @@
 
             <xpath expr="//header" position="inside">
                 <button name="action_recalc_commissions"
-                        string="Recalcular Comisiones"
+                        string="Alinear Comisiones"
                         type="object"
                         class="btn-secondary"
                         groups="om_advanced_commission.group_commission_manager"

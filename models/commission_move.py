@@ -53,8 +53,12 @@ class CommissionMove(models.Model):
                                     help='1.0 = sin retención. Menor a 1 = excedente retenido por autorización pendiente.')
 
     # ── Reversas (nunca se borra lo ya liquidado: se revierte) ─────────
-    origin_move_id = fields.Many2one('commission.move', string='Reversa de', readonly=True, index=True)
-    reversal_ids = fields.One2many('commission.move', 'origin_move_id', string='Reversas')
+    origin_move_id = fields.Many2one('commission.move', string='Ajuste de', readonly=True, index=True)
+    reversal_ids = fields.One2many('commission.move', 'origin_move_id', string='Ajustes / Reversas')
+    adjustment_kind = fields.Selection([
+        ('reversal', 'Reversa (cobro desconciliado)'),
+        ('adjustment', 'Ajuste (regla o autorización cambió)'),
+    ], string='Tipo de Ajuste', readonly=True)
     is_reversal = fields.Boolean(compute='_compute_is_reversal', store=True)
 
     state = fields.Selection([
@@ -72,10 +76,10 @@ class CommissionMove(models.Model):
         'Ya existe una comisión para esta conciliación, comisionista, orden y regla.',
     )
 
-    @api.depends('origin_move_id')
+    @api.depends('origin_move_id', 'adjustment_kind')
     def _compute_is_reversal(self):
         for m in self:
-            m.is_reversal = bool(m.origin_move_id)
+            m.is_reversal = bool(m.origin_move_id) and m.adjustment_kind != 'adjustment'
 
     @api.model_create_multi
     def create(self, vals_list):
@@ -113,57 +117,132 @@ class CommissionMove(models.Model):
         return self._commission_group_users('om_advanced_commission.group_commission_authorizer')
 
     # ------------------------------------------------------------------
-    # Desconciliación
+    # Familia (original + ajustes/reversas) y neutralización
     # ------------------------------------------------------------------
-    def _on_partial_unreconciled(self):
-        """Se llama ANTES de borrar el partial.
+    def _commission_family(self):
+        """Original + sus ajustes y reversas vivos."""
+        self.ensure_one()
+        return (self | self.reversal_ids).filtered(lambda m: m.state != 'cancel')
 
-        - Pendiente: se borra (nunca se pagó nada).
-        - En liquidación no pagada: se saca de la hoja y se borra.
-        - Pagado (o en liquidación ya facturada): se crea una REVERSA
-          negativa en pendiente que neteará en la siguiente liquidación."""
-        for move in self:
+    def _commission_is_paid(self):
+        self.ensure_one()
+        if self.state == 'invoiced':
+            return True
+        return self.state == 'settled' and bool(self.settlement_id) and self.settlement_id.state == 'invoiced'
+
+    def _commission_neutralize(self, kind, reason):
+        """Deja la familia de cada original en CERO neto, en tiempo real:
+        - lo no pagado se borra (o se cancela el original si tiene hijos pagados);
+        - lo ya pagado se compensa con un movimiento negativo pendiente."""
+        Move = self.env['commission.move'].sudo()
+        for move in self.filtered(lambda m: not m.origin_move_id and m.state != 'cancel'):
             so = move.sale_order_id
-            if move.state == 'cancel':
-                continue
-            settled_unpaid = move.state == 'settled' and (
-                not move.settlement_id or move.settlement_id.state in ('draft', 'approved', 'cancel'))
-            if move.state == 'draft' or settled_unpaid:
-                if move.origin_move_id:
-                    # Reversa pendiente de un original que se volvió a
-                    # desconciliar: no hay nada que netear todavía.
-                    continue
-                desc = move.name
-                if move.settlement_id:
-                    move.settlement_id.message_post(
-                        body='Movimiento %s retirado: el cobro fue desconciliado.' % desc)
-                move.unlink()
-                if so:
-                    so.message_post(body='Comisión %s eliminada: el cobro fue desconciliado.' % desc,
+            family = move._commission_family()
+            paid = family.filtered(lambda m: m._commission_is_paid())
+            unpaid = family - paid
+            for m in unpaid:
+                if m.settlement_id:
+                    m.settlement_id.message_post(
+                        body='Movimiento %s retirado: %s.' % (m.name, reason))
+                    m.settlement_id = False
+            names = ', '.join(unpaid.mapped('name'))
+            if not paid:
+                unpaid.unlink()
+                if so and names:
+                    so.message_post(body='Comisión %s eliminada: %s.' % (names, reason),
                                     message_type='notification')
                 continue
-            # Pagado → reversa
-            if move.reversal_ids.filtered(lambda r: r.state != 'cancel'):
+            # Hay dinero ya pagado: el original se conserva como ancla.
+            (unpaid - move).unlink()
+            if move in unpaid:
+                move.write({'state': 'cancel', 'settlement_id': False})
+            total_paid = sum(paid.mapped('amount'))
+            if move.currency_id.is_zero(total_paid):
                 continue
-            rev = move.copy({
-                'name': 'REV ' + move.name,
-                'amount': -move.amount,
-                'base_amount_paid': -(move.base_amount_paid or 0.0),
-                'state': 'draft',
-                'settlement_id': False,
-                'partial_reconcile_id': False,
-                'origin_move_id': move.id,
+            rev = Move.create({
+                'name': ('REV ' if kind == 'reversal' else 'AJU ') + move.name,
+                'partner_id': move.partner_id.id,
+                'sale_order_id': so.id if so else False,
+                'invoice_id': move.invoice_id.id,
+                'invoice_line_id': move.invoice_line_id.id,
+                'payment_id': move.payment_id.id,
+                'company_id': move.company_id.id,
+                'currency_id': move.currency_id.id,
+                'amount': -total_paid,
+                'base_amount_paid': 0.0,
                 'date': fields.Date.context_today(self),
+                'state': 'draft',
+                'origin_move_id': move.id,
+                'adjustment_kind': kind,
+                'rule_id': move.rule_id.id,
+                'rule_role': move.rule_role,
+                'rule_base': move.rule_base,
+                'rule_percent': move.rule_percent,
+                'rule_fixed_amount': move.rule_fixed_amount,
+                'retention_factor': move.retention_factor,
+                'is_refund': move.is_refund,
             })
-            body = ('Comisión %s ya pagada; el cobro fue desconciliado. Se creó la reversa %s '
-                    'por %s que se descontará en la siguiente liquidación.'
-                    % (move.name, rev.name, rev.amount))
+            body = ('Comisión %s ya pagada; %s. Se creó %s por %s que se descontará en la '
+                    'siguiente liquidación.' % (move.name, reason, rev.name, rev.amount))
             if so:
                 so.message_post(body=body, message_type='notification')
                 for user in self._commission_manager_users():
-                    so.activity_schedule(
-                        'mail.mail_activity_data_todo', user_id=user.id,
-                        summary='Reversa de comisión', note=body)
+                    so.activity_schedule('mail.mail_activity_data_todo', user_id=user.id,
+                                         summary='Reversa de comisión', note=body)
+
+    def _on_partial_unreconciled(self):
+        """Se llama ANTES de borrar el partial."""
+        self._commission_neutralize('reversal', 'el cobro fue desconciliado')
+
+    def _commission_apply_expected(self, expected, vals, reason):
+        """Alinea la familia de este original al monto esperado (tiempo real).
+        Original pendiente y sin hijos → se corrige en sitio. Si ya hubo pago
+        → ajuste pendiente por el delta (nunca se toca lo pagado)."""
+        self.ensure_one()
+        cur = self.currency_id
+        family = self._commission_family()
+        current = sum(family.mapped('amount'))
+        delta = cur.round(expected - current)
+        if cur.is_zero(delta):
+            return False
+        children = family - self
+        if self.state == 'draft' and not children:
+            self.write(dict(vals, amount=cur.round(expected)))
+            return True
+        draft_adj = children.filtered(lambda m: m.state == 'draft' and m.adjustment_kind == 'adjustment')[:1]
+        if draft_adj:
+            draft_adj.write({'amount': cur.round(draft_adj.amount + delta),
+                             'retention_factor': vals.get('retention_factor', draft_adj.retention_factor),
+                             'date': fields.Date.context_today(self)})
+            return True
+        self.env['commission.move'].sudo().create({
+            'name': 'AJU ' + self.name,
+            'partner_id': self.partner_id.id,
+            'sale_order_id': self.sale_order_id.id,
+            'invoice_id': self.invoice_id.id,
+            'invoice_line_id': self.invoice_line_id.id,
+            'payment_id': self.payment_id.id,
+            'company_id': self.company_id.id,
+            'currency_id': cur.id,
+            'amount': delta,
+            'base_amount_paid': 0.0,
+            'date': fields.Date.context_today(self),
+            'state': 'draft',
+            'origin_move_id': self.id,
+            'adjustment_kind': 'adjustment',
+            'rule_id': vals.get('rule_id', self.rule_id.id),
+            'rule_role': vals.get('rule_role', self.rule_role),
+            'rule_base': vals.get('rule_base', self.rule_base),
+            'rule_percent': vals.get('rule_percent', self.rule_percent),
+            'rule_fixed_amount': vals.get('rule_fixed_amount', self.rule_fixed_amount),
+            'retention_factor': vals.get('retention_factor', self.retention_factor),
+            'is_refund': self.is_refund,
+        })
+        if self.sale_order_id:
+            self.sale_order_id.message_post(
+                body='Ajuste de comisión %s por %s (%s).' % (self.name, delta, reason),
+                message_type='notification')
+        return True
 
     # ------------------------------------------------------------------
     # Auditoría: cobros sin comisión
@@ -201,8 +280,14 @@ class CommissionMove(models.Model):
 
     @api.model
     def _cron_audit_missing_commissions(self):
+        """Red de seguridad, no paso de proceso: el devengo es en tiempo real
+        al conciliar; aquí solo se regenera lo que un error haya dejado fuera
+        y se avisa únicamente de lo que siga faltando."""
         for company in self.env['res.company'].search([]):
             missing = self.with_company(company)._commission_missing_partials(company=company)
+            if missing:
+                missing._create_commission_moves()
+                missing = self.with_company(company)._commission_missing_partials(company=company)
             if not missing:
                 continue
             note = ('Hay %d cobro(s) de los últimos 90 días sin comisión generada. '

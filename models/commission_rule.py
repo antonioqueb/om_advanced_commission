@@ -130,6 +130,19 @@ class SaleCommissionRule(models.Model):
             body = '%s regla de comisión: %s' % (action, details or rule._commission_describe())
             rule.sale_order_id.sudo().message_post(body=body, message_type='notification')
 
+    def _commission_refresh_orders(self, orders):
+        if self.env.context.get('commission_no_refresh'):
+            return
+        orders.filtered(lambda s: isinstance(s.id, int))._commission_refresh()
+
+    def _commission_zero_out(self, reason):
+        """La regla deja de aplicar (se borra o cambia de beneficiario): sus
+        movimientos quedan en cero neto en tiempo real."""
+        Move = self.env['commission.move'].sudo()
+        moves = Move.search([('rule_id', 'in', self.ids), ('origin_move_id', '=', False),
+                             ('state', '!=', 'cancel')])
+        moves._commission_neutralize('adjustment', reason)
+
     @api.model_create_multi
     def create(self, vals_list):
         orders = self.env['sale.order'].browse(
@@ -137,6 +150,7 @@ class SaleCommissionRule(models.Model):
         self._commission_check_locked(orders)
         rules = super().create(vals_list)
         rules._commission_log('Agregada')
+        self._commission_refresh_orders(rules.mapped('sale_order_id'))
         return rules
 
     def write(self, vals):
@@ -144,15 +158,24 @@ class SaleCommissionRule(models.Model):
         if tracked & set(vals):
             self._commission_check_locked(self.mapped('sale_order_id'))
             before = {r.id: r._commission_describe() for r in self}
+            if vals.get('partner_id'):
+                changing = self.filtered(lambda r: r.partner_id.id != vals['partner_id'])
+                changing._commission_zero_out('la regla cambió de beneficiario')
             res = super().write(vals)
             for rule in self:
                 after = rule._commission_describe()
                 if before.get(rule.id) != after:
                     rule._commission_log('Modificada', '%s  →  %s' % (before.get(rule.id), after))
+            self._commission_refresh_orders(self.mapped('sale_order_id'))
             return res
         return super().write(vals)
 
     def unlink(self):
-        self._commission_check_locked(self.mapped('sale_order_id'))
+        orders = self.mapped('sale_order_id')
+        self._commission_check_locked(orders)
         self._commission_log('Eliminada')
-        return super().unlink()
+        self.filtered(lambda r: r.sale_order_id.state in ('sale', 'done'))._commission_zero_out(
+            'la regla fue eliminada')
+        res = super().unlink()
+        self._commission_refresh_orders(orders)
+        return res

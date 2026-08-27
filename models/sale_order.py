@@ -186,15 +186,38 @@ class SaleOrder(models.Model):
                     "Las comisiones de una orden confirmada están congeladas. "
                     "Solo un Administrador de Comisiones puede modificarlas (%s)."
                     % ', '.join(locked.mapped('name')))
-        res = super().write(vals)
+        # Las reglas escritas vía comandos del O2M no refrescan una por una:
+        # se refresca UNA vez al final.
+        res = super(SaleOrder, self.with_context(commission_no_refresh=True)).write(vals)
         if 'user_id_2' in vals and vals.get('user_id_2'):
             for so in self.filtered(lambda s: not s.seller2_id and s.state in ('draft', 'sent')):
                 u2 = so._commission_user2_partner()
                 if u2:
                     so.with_context(commission_sync=True).write({'seller2_id': u2.id})
         if seller_changed:
-            self._sync_seller_rules()
+            self.with_context(commission_no_refresh=True)._sync_seller_rules()
+        lines_touched = 'order_line' in vals and 'no_commission' in repr(vals.get('order_line'))
+        if (seller_changed or 'commission_rule_ids' in vals or lines_touched) \
+                and not self.env.context.get('commission_no_refresh'):
+            self._commission_refresh()
         return res
+
+    # ------------------------------------------------------------------
+    # Tiempo real: cualquier cambio de reglas/autorización se refleja YA
+    # ------------------------------------------------------------------
+    def _commission_refresh(self):
+        """Alinea los movimientos de la orden con lo que HOY dan sus reglas y
+        su % permitido. No es un paso de proceso: lo disparan los propios
+        cambios (reglas, vendedores, líneas excluidas, autorizaciones)."""
+        Partial = self.env['account.partial.reconcile'].sudo()
+        for so in self.filtered(lambda s: isinstance(s.id, int) and s.state in ('sale', 'done')):
+            invoices = so.sudo().invoice_ids.filtered(lambda i: i.state == 'posted')
+            recv = invoices.line_ids.filtered(lambda l: l.account_id.account_type == 'asset_receivable')
+            if not recv:
+                continue
+            partials = Partial.search([
+                '|', ('debit_move_id', 'in', recv.ids), ('credit_move_id', 'in', recv.ids)])
+            partials._create_commission_moves(refresh=True)
 
     # ------------------------------------------------------------------
     # Sincronización vendedores ↔ reglas internas (EN SITIO)
@@ -448,40 +471,17 @@ class SaleOrder(models.Model):
     # Recalculo manual (repone solo lo que sigue en borrador)
     # ------------------------------------------------------------------
     def action_recalc_commissions(self):
+        """Fuerza la alineación (normalmente innecesaria: es automática)."""
         self.ensure_one()
-        CommissionMove = self.env['commission.move']
-
         if not self.commission_rule_ids:
             return self._return_notification("Faltan definir las Reglas de Comisión.", "danger")
-
-        invoices = self.invoice_ids.filtered(
-            lambda x: x.state == 'posted' and x.payment_state != 'not_paid'
-        )
-        if not invoices:
-            return self._return_notification("Sin facturas pagadas.", "warning")
-
-        old_drafts = CommissionMove.search([
-            ('sale_order_id', '=', self.id), ('state', '=', 'draft'),
-            ('origin_move_id', '=', False)])
-        old_drafts.unlink()
-
-        created_count = 0
-        for inv in invoices:
-            receivable_lines = inv.line_ids.filtered(
-                lambda l: l.account_id.account_type == 'asset_receivable'
-            )
-            partials = self.env['account.partial.reconcile'].search([
-                '|',
-                ('debit_move_id', 'in', receivable_lines.ids),
-                ('credit_move_id', 'in', receivable_lines.ids),
-            ])
-            before_count = CommissionMove.search_count([('sale_order_id', '=', self.id)])
-            partials._create_commission_moves()
-            after_count = CommissionMove.search_count([('sale_order_id', '=', self.id)])
-            created_count += (after_count - before_count)
-
-        msg_type = "success" if created_count > 0 else "info"
-        return self._return_notification(f"Recálculo finalizado. {created_count} comisiones creadas.", msg_type)
+        before = len(self.commission_move_ids)
+        self._commission_refresh()
+        self.invalidate_recordset(['commission_move_ids'])
+        after = len(self.commission_move_ids)
+        return self._return_notification(
+            "Comisiones alineadas con las reglas vigentes (%d movimiento(s), %+d)." % (after, after - before),
+            "success")
 
     # ------------------------------------------------------------------
     # Smart button
@@ -526,3 +526,9 @@ class SaleOrder(models.Model):
 class SaleOrderLine(models.Model):
     _inherit = 'sale.order.line'
     no_commission = fields.Boolean(string='Excluir de Comisión')
+
+    def write(self, vals):
+        res = super().write(vals)
+        if 'no_commission' in vals and not self.env.context.get('commission_no_refresh'):
+            self.mapped('order_id')._commission_refresh()
+        return res
