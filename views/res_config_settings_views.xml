@@ -33,6 +33,17 @@
                         </div>
                     </div>
                     <div class="col-12 col-lg-6 o_setting_box">
+                        <div class="o_setting_left_pane">
+                            <field name="commission_base_on_cash_received"/>
+                        </div>
+                        <div class="o_setting_right_pane">
+                            <label for="commission_base_on_cash_received"/>
+                            <div class="text-muted">
+                                Facturas en dólares: comisión sobre los pesos que realmente entraron (TC del pago).
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-12 col-lg-6 o_setting_box">
                         <div class="o_setting_right_pane">
                             <label for="commission_external_max_percent"/>
                             <field name="commission_external_max_percent"/>

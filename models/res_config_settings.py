@@ -22,6 +22,12 @@ class ResConfigSettings(models.TransientModel):
         default=2.5,
         help='Tope del total de vendedores internos por orden. Aplica a órdenes nuevas; '
              'las existentes conservan su permitido.')
+    commission_base_on_cash_received = fields.Boolean(
+        string='Comisión sobre pesos efectivamente recibidos',
+        config_parameter='om_advanced_commission.base_on_cash_received',
+        default=True,
+        help='Facturas en divisa: la base son los pesos que entraron al tipo de cambio del pago. '
+             'Desactivado = pesos facturados al tipo de cambio de la factura.')
     commission_external_max_percent = fields.Float(
         string='% Máx. Externo sin Autorización',
         config_parameter='om_advanced_commission.external_max_percent',

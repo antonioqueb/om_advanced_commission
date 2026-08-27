@@ -33,7 +33,7 @@ class CommissionAudit(models.TransientModel):
             side = p._commission_invoice_side()
             if not side:
                 continue
-            invoice, counterpart, _line = side
+            invoice = side[0]
             orders = invoice._commission_orders()
             vals.append((0, 0, {
                 'partial_id': p.id,

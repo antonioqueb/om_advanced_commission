@@ -43,7 +43,7 @@ class AccountPartialReconcile(models.Model):
     # Identificación factura / contraparte
     # ------------------------------------------------------------------
     def _commission_invoice_side(self):
-        """(factura_cliente, asiento_contraparte, línea_de_factura) o None."""
+        """(factura_cliente, asiento_contraparte, línea_de_factura, línea_contraparte) o None."""
         self.ensure_one()
         debit, credit = self.debit_move_id, self.credit_move_id
         for inv_line, other_line in ((debit, credit), (credit, debit)):
@@ -62,7 +62,7 @@ class AccountPartialReconcile(models.Model):
                 # comisión en facturas USD.
                 if self._commission_is_exchange_move(other):
                     return None
-                return move, other, inv_line
+                return move, other, inv_line, other_line
         return None
 
     def _commission_is_exchange_move(self, move):
@@ -95,6 +95,31 @@ class AccountPartialReconcile(models.Model):
             return 0.0
         return min(reconciled / total, 1.0)
 
+    def _commission_cash_received_company(self, other_line):
+        """Pesos (moneda compañía) EFECTIVAMENTE recibidos en este partial,
+        valuados por el lado del pago (su propio tipo de cambio), no por el
+        de la factura."""
+        self.ensure_one()
+        ccur = other_line.company_id.currency_id
+        if other_line == self.debit_move_id:
+            amt_cur = abs(self.debit_amount_currency or 0.0)
+        else:
+            amt_cur = abs(self.credit_amount_currency or 0.0)
+        if not other_line.currency_id or other_line.currency_id == ccur:
+            return amt_cur or self.amount
+        if other_line.amount_currency:
+            rate = abs(other_line.balance) / abs(other_line.amount_currency)
+            return amt_cur * rate
+        return self.amount
+
+    @api.model
+    def _commission_base_on_cash_received(self):
+        """True (default): base = pesos recibidos al TC del pago.
+        False: base = pesos facturados al TC de la factura."""
+        raw = self.env['ir.config_parameter'].sudo().get_param(
+            'om_advanced_commission.base_on_cash_received', 'True')
+        return str(raw).strip().lower() not in ('false', '0', 'no', '')
+
     # ------------------------------------------------------------------
     # Devengo
     # ------------------------------------------------------------------
@@ -118,7 +143,7 @@ class AccountPartialReconcile(models.Model):
         side = self._commission_invoice_side()
         if not side:
             return
-        invoice, counterpart, inv_line = side
+        invoice, counterpart, inv_line, other_line = side
         if invoice.state != 'posted':
             return
 
@@ -128,6 +153,16 @@ class AccountPartialReconcile(models.Model):
         ratio = self._commission_payment_ratio(invoice, inv_line)
         if ratio <= 0:
             return
+
+        # SIEMPRE EN PESOS: en facturas en divisa la base son los pesos que
+        # realmente entraron (TC del pago). mxn_factor reescala los pesos de
+        # la factura (TC de facturación) a los pesos recibidos. = 1 en MXN.
+        mxn_factor = 1.0
+        if invoice.currency_id != ccur and self._commission_base_on_cash_received():
+            inv_paid_company = abs(invoice.amount_total_signed) * ratio
+            cash_company = self._commission_cash_received_company(other_line)
+            if inv_paid_company and cash_company:
+                mxn_factor = cash_company / inv_paid_company
 
         # ── Base por LÍNEA de factura (moneda compañía, tipo de cambio de la
         # factura), agrupada por orden de venta. Facturas parciales, multi-
@@ -144,7 +179,7 @@ class AccountPartialReconcile(models.Model):
                 so = fallback_so
             if not so:
                 continue
-            base_untaxed = abs(line.balance) * ratio
+            base_untaxed = abs(line.balance) * ratio * mxn_factor
             tax_factor = (line.price_total / line.price_subtotal) if line.price_subtotal else 1.0
             by_so.setdefault(so, []).append((sale_line or None, base_untaxed, base_untaxed * tax_factor, line))
 
