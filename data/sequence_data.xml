@@ -1,4 +1,10 @@
 <odoo>
+    <record id="seq_commission_incident" model="ir.sequence">
+        <field name="name">Commission Incident</field>
+        <field name="code">commission.incident</field>
+        <field name="prefix">INC/</field>
+        <field name="padding">4</field>
+    </record>
     <record id="seq_commission_move" model="ir.sequence">
         <field name="name">Commission Move</field>
         <field name="code">commission.move</field>

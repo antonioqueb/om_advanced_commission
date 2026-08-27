@@ -20,6 +20,11 @@ class CommissionMakeInvoice(models.TransientModel):
 
         moves = Move.search(domain)
 
+        # Cobros con incidencia abierta (monto sospechoso): no se liquidan
+        # hasta que un administrador la resuelva o la ignore.
+        blocked = self.env['commission.incident']._blocked_commission_moves(moves)
+        moves -= blocked
+
         # Agrupar por (partner_id, currency_id, company_id)
         grouped = {}
         for m in moves:
@@ -53,10 +58,15 @@ class CommissionMakeInvoice(models.TransientModel):
         if deferred:
             for s in created_settlements:
                 s.message_post(body='Diferidos por saldo en contra en este corte: %s' % ', '.join(deferred))
+        if blocked:
+            for s in created_settlements:
+                s.message_post(body='Excluidos por incidencia de cobro abierta: %s' % ', '.join(blocked.mapped('name')))
         if not created_settlements:
             msg = 'Sin movimientos pendientes que liquidar.'
             if deferred:
                 msg = 'Nada que liquidar. Diferidos por saldo en contra: %s' % ', '.join(deferred)
+            if blocked:
+                msg += ' Excluidos por incidencia abierta: %d movimiento(s).' % len(blocked)
             return {
                 'type': 'ir.actions.client', 'tag': 'display_notification',
                 'params': {'title': 'Liquidaciones', 'message': msg, 'type': 'warning', 'sticky': bool(deferred)},

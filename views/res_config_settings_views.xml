@@ -45,6 +45,19 @@
                     </div>
                     <div class="col-12 col-lg-6 o_setting_box">
                         <div class="o_setting_right_pane">
+                            <label for="commission_incident_abs_tolerance"/>
+                            <field name="commission_incident_abs_tolerance"/>
+                            <label for="commission_incident_pct_tolerance" class="mt-2"/>
+                            <field name="commission_incident_pct_tolerance"/>
+                            <div class="text-muted">
+                                Saldo a favor permitido al registrar un pago. Por encima se abre una incidencia
+                                (sobrepago; ≥ 9.5× lo adeudado = posible dígito de más) y las comisiones de ese
+                                cobro no se liquidan hasta resolverla.
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-12 col-lg-6 o_setting_box">
+                        <div class="o_setting_right_pane">
                             <label for="commission_external_max_percent"/>
                             <field name="commission_external_max_percent"/>
                             <div class="text-muted">

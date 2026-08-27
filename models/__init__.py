@@ -6,3 +6,4 @@ from . import commission_settlement
 from . import commission_authorization
 from . import sale_order
 from . import account_move
+from . import commission_incident

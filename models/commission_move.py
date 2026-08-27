@@ -361,6 +361,29 @@ class CommissionMove(models.Model):
 
         moves = self.search(domain, order='date desc, id desc')
 
+        Incident = self.env['commission.incident']
+        incidents = {'count': 0, 'rows': []}
+        blocked_ids = set()
+        if is_auth:
+            try:
+                Incident.sudo()._detect_receipt_mismatches()
+            except Exception:  # noqa: BLE001
+                pass
+            open_inc = Incident.sudo().search([('state', '=', 'open'), ('company_id', '=', self.env.company.id)])
+            incidents = {
+                'count': len(open_inc),
+                'rows': [{
+                    'id': i.id, 'name': i.name,
+                    'kind': dict(i._fields['kind'].selection)[i.kind],
+                    'severity': i.severity,
+                    'partner': i.partner_id.display_name or '',
+                    'payment': i.payment_id.name or i.payment_move_id.name or '',
+                    'expected': round(i.amount_expected, 2), 'actual': round(i.amount_actual, 2),
+                    'ratio': i.ratio,
+                } for i in open_inc[:6]],
+            }
+            blocked_ids = set(Incident._blocked_commission_moves(moves).ids)
+
         company = self.env.company
         company_cur = company.currency_id
 
@@ -407,6 +430,7 @@ class CommissionMove(models.Model):
                          else 'adjustment' if move.adjustment_kind == 'adjustment'
                          else 'refund' if move.is_refund else ''),
                 'retained': bool(move.retention_factor and 0 < move.retention_factor < 1.0),
+                'incident': move.id in blocked_ids,
             })
         for key in ('base', 'total', 'draft', 'settled', 'invoiced', 'retained'):
             kpis[key] = round(kpis[key], 2)
@@ -456,5 +480,6 @@ class CommissionMove(models.Model):
             'rows': rows,
             'sellers': sellers,
             'trend': trend,
+            'incidents': incidents,
             'updated_at': format_date(self.env, today, date_format='dd MMM yyyy'),
         }

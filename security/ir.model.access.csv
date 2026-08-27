@@ -12,3 +12,4 @@ access_commission_authorization_salesman,commission.authorization salesman,model
 access_commission_auth_reject_wizard,commission.authorization.reject.wizard all,model_commission_authorization_reject_wizard,base.group_user,1,1,1,1
 access_commission_audit_manager,commission.audit manager,model_commission_audit,group_commission_manager,1,1,1,1
 access_commission_audit_line_manager,commission.audit.line manager,model_commission_audit_line,group_commission_manager,1,1,1,1
+access_commission_incident_manager,commission.incident manager,model_commission_incident,group_commission_manager,1,1,1,1

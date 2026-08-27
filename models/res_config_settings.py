@@ -28,6 +28,14 @@ class ResConfigSettings(models.TransientModel):
         default=True,
         help='Facturas en divisa: la base son los pesos que entraron al tipo de cambio del pago. '
              'Desactivado = pesos facturados al tipo de cambio de la factura.')
+    commission_incident_abs_tolerance = fields.Float(
+        string='Tolerancia de saldo a favor (monto)',
+        config_parameter='om_advanced_commission.incident_abs_tolerance', default=1000.0,
+        help='Saldo a favor permitido sin incidencia, en moneda de la compañía.')
+    commission_incident_pct_tolerance = fields.Float(
+        string='Tolerancia de saldo a favor (%)',
+        config_parameter='om_advanced_commission.incident_pct_tolerance', default=10.0,
+        help='Porcentaje sobre lo adeudado/aplicado. Se usa el mayor entre monto y porcentaje.')
     commission_external_max_percent = fields.Float(
         string='% Máx. Externo sin Autorización',
         config_parameter='om_advanced_commission.external_max_percent',

@@ -157,6 +157,31 @@
         </div>
 
         <t t-if="!state.loading and state.data">
+            <!-- ══ INCIDENCIAS ═════════════════════════════ -->
+            <div class="om-comm-incidents" t-if="state.data.incidents and state.data.incidents.count">
+                <div class="om-comm-incidents-head">
+                    <div class="om-comm-incidents-title">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+                        <strong><t t-esc="state.data.incidents.count"/> incidencia(s) de cobro abierta(s)</strong>
+                        <span>· sus comisiones no se liquidan hasta resolverlas</span>
+                    </div>
+                    <button class="om-comm-btn om-comm-btn-dark" t-on-click="openIncidents">Ver todas</button>
+                </div>
+                <div class="om-comm-incidents-list">
+                    <t t-foreach="state.data.incidents.rows" t-as="inc" t-key="inc.id">
+                        <div t-att-class="'om-comm-inc ' + (inc.severity === 'high' ? 'high' : '')"
+                             t-on-click="() => this.openIncident(inc.id)">
+                            <span class="om-comm-inc-kind" t-esc="inc.kind"/>
+                            <span class="om-comm-inc-who"><t t-esc="inc.partner"/> · <t t-esc="inc.payment"/></span>
+                            <span class="om-comm-inc-amt">
+                                <t t-esc="state.data.currency_symbol"/><t t-esc="fmt(inc.actual)"/>
+                                <small>vs <t t-esc="state.data.currency_symbol"/><t t-esc="fmt(inc.expected)"/> (×<t t-esc="inc.ratio"/>)</small>
+                            </span>
+                        </div>
+                    </t>
+                </div>
+            </div>
+
             <!-- ══ KPIs ═════════════════════════════════════ -->
             <div class="om-comm-kpis">
                 <div class="om-comm-kpi om-comm-kpi-draft">
@@ -276,6 +301,8 @@
                                           t-esc="stateBadge(row.state).label"/>
                                     <span t-if="row.retained" class="om-comm-badge om-comm-badge-retained"
                                           title="Excedente retenido por autorización pendiente">Retenido</span>
+                                    <span t-if="row.incident" class="om-comm-badge om-comm-badge-incident"
+                                          title="Cobro con incidencia abierta: no se liquida">Incidencia</span>
                                 </td>
                             </tr>
                         </tbody>

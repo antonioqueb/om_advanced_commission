@@ -1,0 +1,117 @@
+<odoo>
+    <record id="view_commission_incident_list" model="ir.ui.view">
+        <field name="name">commission.incident.list</field>
+        <field name="model">commission.incident</field>
+        <field name="arch" type="xml">
+            <list decoration-danger="severity == 'high' and state == 'open'"
+                  decoration-warning="severity == 'medium' and state == 'open'"
+                  decoration-muted="state != 'open'" create="0">
+                <field name="create_date" string="Detectada"/>
+                <field name="name"/>
+                <field name="kind"/>
+                <field name="severity" widget="badge"
+                       decoration-danger="severity == 'high'" decoration-warning="severity == 'medium'"/>
+                <field name="partner_id"/>
+                <field name="payment_id" optional="show"/>
+                <field name="sale_order_id" optional="show"/>
+                <field name="amount_expected" sum="Esperado"/>
+                <field name="amount_actual" sum="Registrado"/>
+                <field name="amount_diff"/>
+                <field name="ratio"/>
+                <field name="currency_id" column_invisible="1"/>
+                <field name="state" widget="badge" decoration-danger="state == 'open'"
+                       decoration-success="state == 'resolved'"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_commission_incident_form" model="ir.ui.view">
+        <field name="name">commission.incident.form</field>
+        <field name="model">commission.incident</field>
+        <field name="arch" type="xml">
+            <form create="0">
+                <header>
+                    <button name="action_resolve" string="Resolver (se corrigió)" type="object"
+                            class="btn-primary" invisible="state != 'open'"/>
+                    <button name="action_ignore" string="Ignorar (saldo a favor aceptado)" type="object"
+                            class="btn-secondary" invisible="state != 'open'"/>
+                    <button name="action_reopen" string="Reabrir" type="object"
+                            class="btn-secondary" invisible="state == 'open'"/>
+                    <field name="state" widget="statusbar" statusbar_visible="open,resolved"/>
+                </header>
+                <sheet>
+                    <div class="oe_title">
+                        <h1><field name="name" readonly="1"/></h1>
+                        <h3><field name="kind" readonly="1"/></h3>
+                    </div>
+                    <div class="alert alert-danger" role="alert" invisible="state != 'open'">
+                        Mientras esta incidencia esté abierta, las comisiones del cobro involucrado
+                        <strong>no entran a liquidación</strong>.
+                    </div>
+                    <group>
+                        <group string="Cobro">
+                            <field name="severity" readonly="1"/>
+                            <field name="partner_id" readonly="1"/>
+                            <field name="payment_id" readonly="1"/>
+                            <field name="payment_move_id" readonly="1" groups="account.group_account_invoice"/>
+                            <field name="invoice_id" readonly="1" invisible="not invoice_id"/>
+                            <field name="sale_order_id" readonly="1" invisible="not sale_order_id"/>
+                            <field name="company_id" readonly="1" groups="base.group_multi_company"/>
+                        </group>
+                        <group string="Montos">
+                            <field name="currency_id" invisible="1"/>
+                            <field name="amount_expected" readonly="1"/>
+                            <field name="amount_actual" readonly="1"/>
+                            <field name="amount_diff" readonly="1"/>
+                            <field name="ratio" readonly="1"/>
+                        </group>
+                    </group>
+                    <group string="Detalle">
+                        <field name="note" nolabel="1" colspan="2" readonly="1"/>
+                    </group>
+                    <group string="Resolución">
+                        <field name="resolution" nolabel="1" colspan="2" readonly="state != 'open'"
+                               placeholder="Qué se revisó o corrigió (obligatorio para cerrar)…"/>
+                        <field name="resolved_by" readonly="1" invisible="not resolved_by"/>
+                        <field name="resolved_date" readonly="1" invisible="not resolved_date"/>
+                    </group>
+                </sheet>
+                <chatter/>
+            </form>
+        </field>
+    </record>
+
+    <record id="view_commission_incident_search" model="ir.ui.view">
+        <field name="name">commission.incident.search</field>
+        <field name="model">commission.incident</field>
+        <field name="arch" type="xml">
+            <search>
+                <field name="name"/>
+                <field name="partner_id"/>
+                <field name="payment_id"/>
+                <field name="sale_order_id"/>
+                <filter name="open" string="Abiertas" domain="[('state', '=', 'open')]"/>
+                <filter name="high" string="Severidad alta" domain="[('severity', '=', 'high')]"/>
+                <separator/>
+                <filter name="group_kind" string="Tipo" context="{'group_by': 'kind'}"/>
+                <filter name="group_partner" string="Cliente" context="{'group_by': 'partner_id'}"/>
+            </search>
+        </field>
+    </record>
+
+    <record id="action_commission_incident" model="ir.actions.act_window">
+        <field name="name">Incidencias de Cobro</field>
+        <field name="res_model">commission.incident</field>
+        <field name="view_mode">list,form</field>
+        <field name="context">{'search_default_open': 1}</field>
+        <field name="help" type="html">
+            <p class="o_view_nocontent_smiling_face">Sin incidencias</p>
+            <p>Se abren solas cuando un pago no cuadra: saldo a favor desmedido, posible dígito de más,
+               recibo de caja distinto al pago o cobro que supera la venta.</p>
+        </field>
+    </record>
+
+    <menuitem id="menu_commission_incident" name="Incidencias"
+              parent="menu_commission_root" action="action_commission_incident"
+              sequence="7" groups="om_advanced_commission.group_commission_manager"/>
+</odoo>

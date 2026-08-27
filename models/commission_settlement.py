@@ -39,9 +39,16 @@ class CommissionSettlement(models.Model):
 
     # ------------------------------------------------------------------
     def action_approve(self):
+        Incident = self.env['commission.incident']
         for rec in self:
             if rec.state != 'draft':
                 raise UserError("Solo se aprueban liquidaciones en borrador.")
+            blocked = Incident._blocked_commission_moves(rec.move_ids)
+            if blocked:
+                raise UserError(
+                    "Hay cobros con incidencia abierta en esta liquidación (%s). "
+                    "Resuélvelas en Comisiones › Incidencias o quita esos movimientos."
+                    % ', '.join(blocked.mapped('name')))
             if rec.currency_id.compare_amounts(rec.total_amount, 0.0) <= 0:
                 raise UserError(
                     "La liquidación %s tiene total %s: un saldo en contra se difiere al siguiente corte, "

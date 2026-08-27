@@ -346,6 +346,31 @@ $omc-red: #dc2626;
     .om-comm-badge-settled  { background: #dbeafe; color: #1e40af; }
     .om-comm-badge-paid     { background: $omc-100; color: #065f46; }
     .om-comm-badge-retained { background: #ffedd5; color: #9a3412; margin-left: 4px; }
+    .om-comm-badge-incident { background: #fee2e2; color: #991b1b; margin-left: 4px; }
+    .om-comm-btn-dark { background: $omc-ink; border-color: $omc-ink; color: #fff; &:hover:not(:disabled) { background: #1e293b; } }
+
+    // ══ INCIDENCIAS ═══════════════════════════════════════════
+    .om-comm-incidents {
+        margin: 16px 28px 0; padding: 12px 16px 10px;
+        background: #fff7f7; border: 1px solid #fecaca; border-left: 5px solid $omc-red; border-radius: 14px;
+    }
+    .om-comm-incidents-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+    .om-comm-incidents-title {
+        display: flex; align-items: center; gap: 8px; color: #7f1d1d; font-size: 0.9rem;
+        span { color: #991b1b; font-size: 0.8rem; }
+    }
+    .om-comm-incidents-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 8px; margin-top: 10px; }
+    .om-comm-inc {
+        display: grid; grid-template-columns: 1fr auto; gap: 2px 10px; align-items: center;
+        background: #fff; border: 1px solid #fecaca; border-radius: 10px; padding: 8px 12px; cursor: pointer;
+        transition: transform 0.12s, box-shadow 0.12s;
+        &:hover { transform: translateY(-1px); box-shadow: 0 6px 16px rgba(220, 38, 38, 0.12); }
+        &.high { border-color: $omc-red; }
+        .om-comm-inc-kind { font-weight: 800; font-size: 0.8rem; color: #7f1d1d; }
+        .om-comm-inc-who { grid-column: 1; font-size: 0.76rem; color: $omc-muted; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .om-comm-inc-amt { grid-column: 2; grid-row: 1 / span 2; text-align: right; font-weight: 800; color: $omc-red; font-size: 0.9rem;
+            small { display: block; font-weight: 600; color: $omc-muted; font-size: 0.7rem; } }
+    }
 
     .om-comm-tag {
         display: inline-block; margin-left: 6px; padding: 1px 7px; border-radius: 6px;

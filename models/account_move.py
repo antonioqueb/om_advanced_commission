@@ -281,6 +281,10 @@ class AccountPartialReconcile(models.Model):
     def create(self, vals_list):
         res = super().create(vals_list)
         res.sudo()._create_commission_moves()
+        try:
+            self.env['commission.incident'].sudo()._detect_for_partials(res)
+        except Exception:  # noqa: BLE001 — la detección jamás bloquea la conciliación
+            _logger.exception("[COMMISSION] detección de incidencias falló en partials %s", res.ids)
         return res
 
     def unlink(self):

@@ -169,6 +169,20 @@ export class CommissionDashboard extends Component {
         });
     }
 
+    openIncidents() {
+        this.action.doAction("om_advanced_commission.action_commission_incident");
+    }
+
+    openIncident(id) {
+        this.action.doAction({
+            type: "ir.actions.act_window",
+            res_model: "commission.incident",
+            res_id: id,
+            views: [[false, "form"]],
+            target: "current",
+        });
+    }
+
     printReport() {
         this.action.doAction(
             "om_advanced_commission.action_commission_report_wizard"
