@@ -92,6 +92,11 @@
         <field name="parent_id" eval="False"/>
     </record>
 
+    <!-- Consulta por persona (sin liquidar) -->
+    <menuitem id="menu_commission_statement" name="Estado de Cuenta"
+              parent="menu_commission_root" action="action_commission_statement"
+              sequence="6" groups="om_advanced_commission.group_commission_manager"/>
+
     <!-- Submenús operativos (solo gestores) -->
     <menuitem id="menu_commission_analysis" name="Movimientos Individuales"
               parent="menu_commission_root" action="action_commission_move"

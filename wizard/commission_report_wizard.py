@@ -19,7 +19,7 @@ class CommissionReportWizard(models.TransientModel):
 
     @api.depends_context('uid')
     def _compute_is_authorizer(self):
-        is_auth = self.env.user.has_group('om_advanced_commission.group_commission_authorizer')
+        is_auth = self.env.user.has_group('om_advanced_commission.group_commission_manager')
         for rec in self:
             rec.is_authorizer = is_auth
 
@@ -29,7 +29,7 @@ class CommissionReportWizard(models.TransientModel):
         today = date.today()
         res['date_from'] = today.replace(day=1)
         res['date_to'] = today
-        if not self.env.user.has_group('om_advanced_commission.group_commission_authorizer'):
+        if not self.env.user.has_group('om_advanced_commission.group_commission_manager'):
             res['partner_ids'] = [(6, 0, [self.env.user.partner_id.id])]
         return res
 
@@ -40,7 +40,7 @@ class CommissionReportWizard(models.TransientModel):
                 raise UserError("La fecha 'Desde' no puede ser mayor a 'Hasta'.")
 
     def action_print_report(self):
-        if not self.env.user.has_group('om_advanced_commission.group_commission_authorizer'):
+        if not self.env.user.has_group('om_advanced_commission.group_commission_manager'):
             partner = self.env.user.partner_id
             # Cero excepciones: cualquier partner ajeno se rechaza y la
             # selección se fuerza al propio.

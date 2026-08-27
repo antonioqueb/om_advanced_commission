@@ -35,6 +35,7 @@
 
                     <select t-if="state.data.is_authorizer"
                             class="om-comm-select"
+                            t-att-value="state.partnerId || ''"
                             t-on-change="onSellerChange">
                         <option value="">Todos los comisionistas</option>
                         <t t-foreach="state.data.sellers" t-as="seller" t-key="seller.id">
@@ -205,11 +206,13 @@
                  t-if="state.data.is_authorizer and !state.partnerId and leaderboard.length > 1">
                 <div class="om-comm-card-head">
                     <h2>Por comisionista</h2>
-                    <span class="om-comm-muted"><t t-esc="leaderboard.length"/> con movimientos</span>
+                    <span class="om-comm-muted"><t t-esc="leaderboard.length"/> con movimientos · toca uno para verlo</span>
                 </div>
                 <div class="om-comm-board-list">
                     <t t-foreach="leaderboard" t-as="p" t-key="p.name">
-                        <div class="om-comm-board-row">
+                        <div class="om-comm-board-row om-comm-board-click"
+                             t-on-click="() => this.selectPartner(p.id)"
+                             title="Ver solo a esta persona">
                             <span class="om-comm-board-rank" t-esc="p_index + 1"/>
                             <div class="om-comm-board-body">
                                 <div class="om-comm-board-top">

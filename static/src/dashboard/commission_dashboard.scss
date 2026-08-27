@@ -290,6 +290,10 @@ $omc-red: #dc2626;
     // Ranking
     .om-comm-board-list { padding: 0 18px 14px; display: flex; flex-direction: column; gap: 10px; }
     .om-comm-board-row { display: flex; align-items: center; gap: 12px; }
+    .om-comm-board-click {
+        cursor: pointer; border-radius: 10px; padding: 6px 8px; margin: 0 -8px; transition: background 0.15s;
+        &:hover { background: $omc-50; }
+    }
     .om-comm-board-rank {
         width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; flex: none;
         background: $omc-50; color: $omc-700; font-size: 0.75rem; font-weight: 800; border: 1px solid $omc-100;

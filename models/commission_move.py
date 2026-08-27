@@ -337,7 +337,9 @@ class CommissionMove(models.Model):
         Los datos contables se extraen con sudo (el vendedor no tiene
         permisos de contabilidad)."""
         user = self.env.user
-        is_auth = user.has_group('om_advanced_commission.group_commission_authorizer')
+        # Consultar a cualquier persona = Administrador de Comisiones (el
+        # autorizador lo implica). No exige liquidar ni ningún paso previo.
+        is_auth = user.has_group('om_advanced_commission.group_commission_manager')
         today = fields.Date.context_today(self)
         try:
             year, mon = [int(x) for x in (month or '').split('-')]
@@ -390,6 +392,7 @@ class CommissionMove(models.Model):
                 'id': move.id,
                 'name': move.name,
                 'partner': move.partner_id.display_name,
+                'partner_id': move.partner_id.id,
                 'order_id': so.id if so else False,
                 'order': so.name if so else '',
                 'order_date': fmt_dt(so.date_order) if so else fmt_dt(move.date),

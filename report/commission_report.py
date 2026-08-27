@@ -37,7 +37,7 @@ class ReportCommissionPDF(models.AbstractModel):
 
         # CANDADO DE PROPIEDAD: quien no es autorizador SOLO imprime sus
         # propias comisiones, sin importar qué traiga `data`.
-        if self.env.user.has_group('om_advanced_commission.group_commission_authorizer'):
+        if self.env.user.has_group('om_advanced_commission.group_commission_manager'):
             if partner_ids:
                 domain.append(('partner_id', 'in', partner_ids))
         else:

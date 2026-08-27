@@ -66,6 +66,11 @@ export class CommissionDashboard extends Component {
         this.load();
     }
 
+    selectPartner(partnerId) {
+        this.state.partnerId = partnerId || false;
+        this.load();
+    }
+
     toggleHelp() {
         this.state.showHelp = !this.state.showHelp;
     }
@@ -135,7 +140,7 @@ export class CommissionDashboard extends Component {
     get leaderboard() {
         const byPartner = {};
         for (const r of this.state.data.rows) {
-            if (!byPartner[r.partner]) byPartner[r.partner] = { name: r.partner, amount: 0, count: 0 };
+            if (!byPartner[r.partner]) byPartner[r.partner] = { name: r.partner, id: r.partner_id, amount: 0, count: 0 };
             byPartner[r.partner].amount += r.amount;
             byPartner[r.partner].count += 1;
         }

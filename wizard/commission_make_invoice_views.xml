@@ -23,5 +23,7 @@
         <field name="view_mode">form</field>
     </record>
 
-    <menuitem id="menu_commission_wizard" name="Generar Liquidación Masiva" parent="menu_commission_root" action="action_commission_wizard" sequence="5"/>
+    <menuitem id="menu_commission_wizard" name="Generar Liquidación Masiva" parent="menu_commission_root"
+              action="action_commission_wizard" sequence="21"
+              groups="om_advanced_commission.group_commission_manager"/>
 </odoo>

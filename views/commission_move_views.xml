@@ -88,6 +88,7 @@
                 <field name="partner_id"/>
                 <field name="sale_order_id"/>
                 <field name="invoice_name"/>
+                <filter name="not_cancel" string="Vigentes" domain="[('state', '!=', 'cancel')]"/>
                 <filter name="draft" string="Pendientes" domain="[('state', '=', 'draft')]"/>
                 <filter name="settled" string="En liquidación" domain="[('state', '=', 'settled')]"/>
                 <filter name="invoiced" string="Pagados" domain="[('state', '=', 'invoiced')]"/>
@@ -106,5 +107,31 @@
         <field name="name">Análisis de Movimientos</field>
         <field name="res_model">commission.move</field>
         <field name="view_mode">list,form,pivot</field>
+    </record>
+
+    <!-- Estado de cuenta por comisionista: consulta directa, en tiempo real,
+         sin generar liquidación. Agrupado por persona con totales. -->
+    <record id="view_commission_move_pivot" model="ir.ui.view">
+        <field name="name">commission.move.pivot</field>
+        <field name="model">commission.move</field>
+        <field name="arch" type="xml">
+            <pivot string="Comisiones por comisionista">
+                <field name="partner_id" type="row"/>
+                <field name="state" type="col"/>
+                <field name="amount" type="measure"/>
+                <field name="base_amount_paid" type="measure"/>
+            </pivot>
+        </field>
+    </record>
+
+    <record id="action_commission_statement" model="ir.actions.act_window">
+        <field name="name">Estado de Cuenta por Comisionista</field>
+        <field name="res_model">commission.move</field>
+        <field name="view_mode">list,pivot,form</field>
+        <field name="context">{'search_default_group_partner': 1, 'search_default_not_cancel': 1}</field>
+        <field name="help" type="html">
+            <p class="o_view_nocontent_smiling_face">Sin comisiones todavía</p>
+            <p>Aparecen aquí en cuanto se concilia un cobro. No hace falta liquidar para consultarlas.</p>
+        </field>
     </record>
 </odoo>
