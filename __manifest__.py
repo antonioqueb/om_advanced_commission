@@ -1,6 +1,6 @@
 {
     'name': 'Gestión Avanzada de Comisiones (Cash Basis & Proyectos)',
-    'version': '19.0.3.3.2',
+    'version': '19.0.3.3.3',
     'category': 'Sales/Commissions',
     'summary': 'Motor de comisiones multi-agente sobre cobros: cálculo por línea de factura, retención por autorización, reversas y liquidaciones.',
     'author': 'Alphaqueb Consulting',

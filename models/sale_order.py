@@ -1,6 +1,5 @@
 from odoo import models, fields, api
 from odoo.exceptions import UserError, ValidationError
-from odoo.models import NewId
 import logging
 
 _logger = logging.getLogger(__name__)
@@ -236,7 +235,7 @@ class SaleOrder(models.Model):
         conservan autorización, historial y snapshots de movimientos."""
         Rule = self.env['sale.commission.rule'].with_context(commission_sync=True)
         for so in self:
-            in_onchange = isinstance(so.id, NewId)
+            in_onchange = not isinstance(so.id, int)  # id virtual (onchange) vs persistido; NewId cambió de ruta en Odoo 19
             internal = so.commission_rule_ids.filtered(lambda r: r.role_type == 'internal')
             used = Rule.browse()
             for slot, partner, pct in so._seller_slots():
