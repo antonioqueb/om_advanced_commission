@@ -48,7 +48,16 @@
     </record>
 
     <!-- Menú raíz -->
-    <menuitem id="menu_commission_root" name="Comisiones" parent="sale.sale_menu_root" sequence="40"/>
+    <!-- App propia: la raíz de Comisiones sale del menú de Ventas. Visible
+         para toda la fuerza de ventas; cada submenú conserva sus grupos. -->
+    <menuitem id="menu_commission_root" name="Comisiones"
+              web_icon="om_advanced_commission,static/description/icon_comisiones.svg"
+              sequence="74"
+              groups="sales_team.group_sale_salesman"/>
+    <!-- menuitem sin parent NO limpia el padre viejo en el -u: se fuerza. -->
+    <record id="menu_commission_root" model="ir.ui.menu">
+        <field name="parent_id" eval="False"/>
+    </record>
 
     <!-- Submenús operativos (solo gestores) -->
     <menuitem id="menu_commission_analysis" name="Movimientos Individuales"

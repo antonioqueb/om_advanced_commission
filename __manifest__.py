@@ -1,6 +1,6 @@
 {
     'name': 'Gestión Avanzada de Comisiones (Cash Basis & Proyectos)',
-    'version': '19.0.1.8.0',
+    'version': '19.0.2.0.0',
     'category': 'Sales/Commissions',
     'summary': 'Motor de comisiones multi-agente basado en pagos, margenes y liquidaciones.',
     'author': 'Alphaqueb Consulting',
@@ -14,12 +14,20 @@
         'views/sale_order_views.xml',
         'views/commission_move_views.xml',
         'views/commission_settlement_views.xml',
+        'views/commission_dashboard_views.xml',
         'views/commission_authorization_views.xml',
         'wizard/commission_make_invoice_views.xml',
         'wizard/commission_report_wizard_views.xml',
         'wizard/commission_authorization_reject_wizard_views.xml',
         'report/commission_report_template.xml',
     ],
+    'assets': {
+        'web.assets_backend': [
+            'om_advanced_commission/static/src/dashboard/commission_dashboard.js',
+            'om_advanced_commission/static/src/dashboard/commission_dashboard.xml',
+            'om_advanced_commission/static/src/dashboard/commission_dashboard.scss',
+        ],
+    },
     'installable': True,
     'application': True,
     'license': 'LGPL-3',

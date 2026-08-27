@@ -1,0 +1,253 @@
+.om-comm-dash {
+    height: 100%;
+    overflow-y: auto;
+    background: #f4f6fa;
+    padding: 0 0 24px;
+
+    // ── Encabezado ────────────────────────────────
+    .om-comm-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        flex-wrap: wrap;
+        gap: 12px;
+        padding: 18px 24px;
+        background: linear-gradient(120deg, #10365c 0%, #1a5fa8 100%);
+        color: #fff;
+
+        .om-comm-title {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+
+            h1 {
+                margin: 0;
+                font-size: 1.35rem;
+                font-weight: 700;
+                color: #fff;
+            }
+            span {
+                font-size: 0.85rem;
+                opacity: 0.85;
+                text-transform: capitalize;
+            }
+        }
+    }
+
+    .om-comm-controls {
+        display: flex;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 8px;
+    }
+
+    .om-comm-select {
+        border: none;
+        border-radius: 8px;
+        padding: 7px 10px;
+        font-size: 0.85rem;
+        color: #10365c;
+        max-width: 220px;
+    }
+
+    .om-comm-monthnav {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+
+        .om-comm-month {
+            min-width: 120px;
+            text-align: center;
+            font-weight: 600;
+            font-size: 0.9rem;
+            text-transform: capitalize;
+        }
+    }
+
+    .om-comm-btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        border: none;
+        border-radius: 8px;
+        padding: 7px 10px;
+        background: rgba(255, 255, 255, 0.16);
+        color: #fff;
+        cursor: pointer;
+        font-size: 0.85rem;
+        transition: background 0.15s;
+
+        &:hover:not(:disabled) {
+            background: rgba(255, 255, 255, 0.3);
+        }
+        &:disabled {
+            opacity: 0.4;
+            cursor: default;
+        }
+    }
+
+    .om-comm-btn-primary {
+        background: #fff;
+        color: #10365c;
+        font-weight: 600;
+
+        &:hover:not(:disabled) {
+            background: #e8eefc;
+        }
+    }
+
+    // ── Cargando ─────────────────────────────────
+    .om-comm-loading {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 12px;
+        padding: 60px 0;
+        color: #5b6b7f;
+
+        .om-comm-spinner {
+            width: 22px;
+            height: 22px;
+            border: 3px solid #c9d6e8;
+            border-top-color: #1a5fa8;
+            border-radius: 50%;
+            animation: om-comm-spin 0.8s linear infinite;
+        }
+    }
+
+    @keyframes om-comm-spin {
+        to { transform: rotate(360deg); }
+    }
+
+    // ── KPIs ─────────────────────────────────────
+    .om-comm-kpis {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 12px;
+        padding: 18px 24px 6px;
+    }
+
+    .om-comm-kpi {
+        flex: 1 1 160px;
+        min-width: 150px;
+        background: #fff;
+        border: 1px solid #e3e9f2;
+        border-radius: 12px;
+        padding: 14px 16px;
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+
+        .om-comm-kpi-label {
+            font-size: 0.72rem;
+            font-weight: 600;
+            letter-spacing: 0.04em;
+            text-transform: uppercase;
+            color: #7b8aa0;
+        }
+        .om-comm-kpi-value {
+            font-size: 1.25rem;
+            font-weight: 700;
+            color: #10365c;
+        }
+        .om-comm-kpi-sub {
+            font-size: 0.75rem;
+            color: #7b8aa0;
+        }
+    }
+
+    .om-comm-kpi-main {
+        border-color: #1a5fa8;
+        box-shadow: 0 2px 8px rgba(26, 95, 168, 0.12);
+    }
+
+    .om-comm-amber { color: #b57708 !important; }
+    .om-comm-blue { color: #1a5fa8 !important; }
+    .om-comm-green { color: #1e7d45 !important; }
+
+    // ── Tabla ────────────────────────────────────
+    .om-comm-table-wrap {
+        margin: 14px 24px 0;
+        background: #fff;
+        border: 1px solid #e3e9f2;
+        border-radius: 12px;
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+    }
+
+    .om-comm-table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 0.85rem;
+        white-space: nowrap;
+
+        th {
+            text-align: left;
+            padding: 10px 14px;
+            font-size: 0.72rem;
+            font-weight: 700;
+            letter-spacing: 0.04em;
+            text-transform: uppercase;
+            color: #7b8aa0;
+            border-bottom: 1px solid #e3e9f2;
+            background: #f9fbfe;
+        }
+        td {
+            padding: 9px 14px;
+            border-bottom: 1px solid #eef2f8;
+            color: #2b3a4d;
+        }
+        tbody tr:last-child td {
+            border-bottom: none;
+        }
+        tbody tr:hover td {
+            background: #f4f8fe;
+        }
+    }
+
+    .om-comm-num {
+        text-align: right !important;
+        font-variant-numeric: tabular-nums;
+    }
+    .om-comm-strong { font-weight: 700; }
+    .om-comm-refund td { color: #a33; }
+
+    .om-comm-link {
+        color: #1a5fa8;
+        font-weight: 600;
+        text-decoration: none;
+
+        &:hover { text-decoration: underline; }
+    }
+
+    .om-comm-badge {
+        display: inline-block;
+        padding: 2px 10px;
+        border-radius: 999px;
+        font-size: 0.72rem;
+        font-weight: 700;
+    }
+    .om-comm-badge-draft { background: #fdf3dd; color: #9a6a06; }
+    .om-comm-badge-settled { background: #e2edfb; color: #17538f; }
+    .om-comm-badge-paid { background: #e0f3e8; color: #1e7d45; }
+
+    // ── Vacío ────────────────────────────────────
+    .om-comm-empty {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 10px;
+        padding: 70px 20px;
+        color: #93a3b8;
+
+        p { margin: 0; font-size: 0.95rem; }
+    }
+
+    // ── Móvil: contenido primero ─────────────────
+    @media (max-width: 640px) {
+        .om-comm-header { padding: 12px 14px; }
+        .om-comm-kpis { padding: 12px 14px 4px; }
+        .om-comm-kpi { flex: 1 1 44%; min-width: 130px; }
+        .om-comm-table-wrap { margin: 12px 14px 0; }
+    }
+}

@@ -42,7 +42,7 @@
               name="Mis Comisiones"
               parent="menu_commission_root"
               action="action_commission_report_wizard"
-              sequence="1"/>
+              sequence="5"/>
 
     <!-- Reporte PDF: accesible para gestores -->
     <menuitem id="menu_commission_report"

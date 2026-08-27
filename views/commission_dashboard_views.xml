@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <record id="action_commission_dashboard" model="ir.actions.client">
+        <field name="name">Panel de Comisiones</field>
+        <field name="tag">om_advanced_commission.dashboard</field>
+    </record>
+
+    <!-- Pantalla principal de la app Comisiones -->
+    <menuitem id="menu_commission_dashboard"
+              name="Panel"
+              parent="menu_commission_root"
+              action="action_commission_dashboard"
+              sequence="1"/>
+
+</odoo>
