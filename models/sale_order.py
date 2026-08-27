@@ -1,5 +1,5 @@
 from odoo import models, fields, api
-from odoo.exceptions import UserError
+from odoo.exceptions import UserError, ValidationError
 from odoo.models import NewId
 import logging
 
@@ -18,11 +18,17 @@ class SaleOrder(models.Model):
     commission_rule_ids = fields.One2many('sale.commission.rule', 'sale_order_id', string='Reglas de Comisión')
     x_project_id = fields.Many2one('project.project', string='Proyecto (Job Name)')
 
-    seller1_id = fields.Many2one('res.partner', string='Vendedor 1', domain=[('is_company', '=', False)], tracking=True)
+    # Vendedores internos = SOLO contactos que son usuarios de Odoo con
+    # permisos de ventas (no cualquier contacto). El dominio filtra el
+    # desplegable y _check_sellers lo garantiza en servidor.
+    seller1_id = fields.Many2one('res.partner', string='Vendedor 1', tracking=True,
+                                 domain=lambda self: self._commission_seller_domain())
     seller1_percent = fields.Float(string='% Vendedor 1', default=2.5, tracking=True)
-    seller2_id = fields.Many2one('res.partner', string='Vendedor 2', domain=[('is_company', '=', False)], tracking=True)
+    seller2_id = fields.Many2one('res.partner', string='Vendedor 2', tracking=True,
+                                 domain=lambda self: self._commission_seller_domain())
     seller2_percent = fields.Float(string='% Vendedor 2', default=0.0, tracking=True)
-    seller3_id = fields.Many2one('res.partner', string='Vendedor 3', domain=[('is_company', '=', False)], tracking=True)
+    seller3_id = fields.Many2one('res.partner', string='Vendedor 3', tracking=True,
+                                 domain=lambda self: self._commission_seller_domain())
     seller3_percent = fields.Float(string='% Vendedor 3', default=0.0, tracking=True)
 
     total_seller_percent = fields.Float(
@@ -61,6 +67,53 @@ class SaleOrder(models.Model):
         compute='_compute_commission_stats', string='Base Cobrada',
         currency_field='company_currency_id')
     company_currency_id = fields.Many2one(related='company_id.currency_id')
+
+    # ------------------------------------------------------------------
+    # Vendedores internos: usuarios con permisos de ventas
+    # ------------------------------------------------------------------
+    @api.model
+    def _commission_user_groups_field(self):
+        """Odoo 19: all_group_ids (directos + implicados); antes groups_id."""
+        Users = self.env['res.users']
+        for fname in ('all_group_ids', 'group_ids', 'groups_id'):
+            if fname in Users._fields:
+                return fname
+        return 'groups_id'
+
+    @api.model
+    def _commission_seller_domain(self):
+        group = self.env.ref('sales_team.group_sale_salesman', raise_if_not_found=False)
+        if not group:
+            return [('user_ids', '!=', False)]
+        return [
+            ('user_ids.active', '=', True),
+            ('user_ids.share', '=', False),
+            ('user_ids.%s' % self._commission_user_groups_field(), 'in', [group.id]),
+        ]
+
+    @api.model
+    def _commission_is_sales_user_partner(self, partner):
+        if not partner:
+            return True
+        group = self.env.ref('sales_team.group_sale_salesman', raise_if_not_found=False)
+        gfield = self._commission_user_groups_field()
+        users = partner.sudo().user_ids.filtered(lambda u: u.active and not u.share)
+        if not users:
+            return False
+        if not group:
+            return True
+        return any(group in u[gfield] for u in users)
+
+    @api.constrains('seller1_id', 'seller2_id', 'seller3_id')
+    def _check_sellers(self):
+        for so in self:
+            bad = [p.display_name for p in (so.seller1_id, so.seller2_id, so.seller3_id)
+                   if p and not self._commission_is_sales_user_partner(p)]
+            if bad:
+                raise ValidationError(
+                    "Solo usuarios de Odoo con permisos de ventas pueden ser vendedores internos: %s. "
+                    "Para embajadores, constructoras o referidores usa 'Otras Comisiones'."
+                    % ', '.join(bad))
 
     # ------------------------------------------------------------------
     # Parámetros
