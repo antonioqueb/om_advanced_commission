@@ -95,9 +95,9 @@
                             <div class="om-comm-comp-draft" t-att-style="barStyle(composition.draft)" t-att-title="'Pendiente ' + fmt(state.data.kpis.draft)"/>
                         </div>
                         <div class="om-comm-comp-legend">
-                            <span><i class="om-comm-sw om-comm-sw-paid"/>Pagado <t t-esc="Math.round(composition.paid)"/>%</span>
-                            <span><i class="om-comm-sw om-comm-sw-settled"/>En liquidación <t t-esc="Math.round(composition.settled)"/>%</span>
-                            <span><i class="om-comm-sw om-comm-sw-draft"/>Pendiente <t t-esc="Math.round(composition.draft)"/>%</span>
+                            <span><i class="om-comm-sw om-comm-sw-paid"/>Pagado <t t-esc="pct(composition.paid)"/>%</span>
+                            <span><i class="om-comm-sw om-comm-sw-settled"/>En liquidación <t t-esc="pct(composition.settled)"/>%</span>
+                            <span><i class="om-comm-sw om-comm-sw-draft"/>Pendiente <t t-esc="pct(composition.draft)"/>%</span>
                         </div>
                     </div>
                 </div>

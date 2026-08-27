@@ -86,6 +86,10 @@ export class CommissionDashboard extends Component {
         return sign + v.toFixed(0);
     }
 
+    pct(value) {
+        return Math.round(value || 0);
+    }
+
     stateBadge(st) {
         return {
             draft: { label: "Pendiente", cls: "om-comm-badge-draft" },
