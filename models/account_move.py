@@ -53,10 +53,27 @@ class AccountPartialReconcile(models.Model):
                     return None
                 # Factura contra su nota de crédito: no entra ni sale dinero,
                 # no hay comisión positiva ni negativa que devengar.
-                if other_line.move_id.move_type in ('out_invoice', 'out_refund'):
+                other = other_line.move_id
+                if other.move_type in ('out_invoice', 'out_refund'):
                     return None
-                return move, other_line.move_id, inv_line
+                # Diferencia cambiaria: Odoo la concilia contra la factura con
+                # amount_currency = 0. No es cobro; con el fallback viejo
+                # (pesos de la diferencia ÷ dólares de la factura) duplicaba
+                # comisión en facturas USD.
+                if self._commission_is_exchange_move(other):
+                    return None
+                return move, other, inv_line
         return None
+
+    def _commission_is_exchange_move(self, move):
+        company = move.company_id
+        fx_journal = company.currency_exchange_journal_id if 'currency_exchange_journal_id' in company._fields else False
+        if fx_journal and move.journal_id == fx_journal:
+            return True
+        if 'exchange_move_id' in self._fields and self.env['account.partial.reconcile'].sudo().search_count(
+                [('exchange_move_id', '=', move.id)], limit=1):
+            return True
+        return False
 
     def _commission_payment_ratio(self, invoice, inv_line):
         """Parte del total de la factura (en su moneda) que cubre este partial."""
@@ -65,11 +82,14 @@ class AccountPartialReconcile(models.Model):
         if invoice.currency_id == company_cur:
             reconciled = self.amount
         else:
+            # Multimoneda: la fracción cobrada SIEMPRE en la moneda de la
+            # factura. Jamás caer al monto en pesos (mezcla divisas).
             if inv_line == self.debit_move_id:
                 reconciled = abs(self.debit_amount_currency or 0.0)
             else:
                 reconciled = abs(self.credit_amount_currency or 0.0)
-            reconciled = reconciled or self.amount
+            if not reconciled:
+                return 0.0
         total = invoice.amount_total
         if not total:
             return 0.0
