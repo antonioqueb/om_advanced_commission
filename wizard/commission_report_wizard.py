@@ -44,10 +44,13 @@ class CommissionReportWizard(models.TransientModel):
     def action_print_report(self):
         if not self.env.user.has_group('om_advanced_commission.group_commission_authorizer'):
             partner = self.env.user.partner_id
-            if self.partner_ids and partner not in self.partner_ids:
+            # Cero excepciones: cualquier partner ajeno en la selección se
+            # rechaza (antes bastaba incluirse a sí mismo para colar a otros)
+            # y la selección se fuerza al propio.
+            foreign = self.partner_ids.filtered(lambda p: p != partner)
+            if foreign:
                 raise UserError("Solo puedes ver tus propias comisiones.")
-            if not self.partner_ids:
-                self.partner_ids = [(6, 0, [partner.id])]
+            self.partner_ids = [(6, 0, [partner.id])]
 
         data = {
             'date_from': self.date_from,
