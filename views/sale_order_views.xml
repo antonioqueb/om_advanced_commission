@@ -45,8 +45,8 @@
                         mientras no se apruebe la autorización. Los porcentajes capturados no se modifican.
                     </div>
                     <div class="alert alert-info" role="alert" invisible="state not in ['sale', 'done']">
-                        Orden confirmada: las comisiones están congeladas. Solo un Administrador de Comisiones puede
-                        modificarlas y cada cambio queda registrado en el chatter.
+                        Orden confirmada: puedes cambiar el comisionista. Cada cambio queda en el chatter y las
+                        comisiones ya cobradas se realinean automáticamente (ajuste por diferencia si ya se pagó).
                     </div>
 
                     <group string="Vendedores">

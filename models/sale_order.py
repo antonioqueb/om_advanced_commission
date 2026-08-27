@@ -176,15 +176,10 @@ class SaleOrder(models.Model):
 
     def write(self, vals):
         seller_changed = bool(set(SELLER_FIELDS) & set(vals))
-        if (seller_changed or 'commission_rule_ids' in vals) and not self.env.context.get('commission_sync'):
-            # Congelado tras confirmar: solo Administrador de Comisiones.
-            locked = self.filtered(lambda s: s.state in ('sale', 'done'))
-            if locked and not self.env.su and not self.env.user.has_group(
-                    'om_advanced_commission.group_commission_manager'):
-                raise UserError(
-                    "Las comisiones de una orden confirmada están congeladas. "
-                    "Solo un Administrador de Comisiones puede modificarlas (%s)."
-                    % ', '.join(locked.mapped('name')))
+        # Sin candado por estado: cualquier vendedor (p. ej. el ayudante de
+        # otro) puede cambiar el comisionista de una orden confirmada. El
+        # cambio queda en el chatter (tracking) y las comisiones ya
+        # devengadas se realinean en tiempo real.
         # Las reglas escritas vía comandos del O2M no refrescan una por una:
         # se refresca UNA vez al final.
         res = super(SaleOrder, self.with_context(commission_no_refresh=True)).write(vals)

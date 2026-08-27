@@ -100,18 +100,10 @@ class SaleCommissionRule(models.Model):
     # Congelación tras confirmar + bitácora en el chatter de la orden
     # ------------------------------------------------------------------
     def _commission_check_locked(self, orders):
-        """Una orden confirmada solo cambia sus reglas por un administrador
-        de comisiones. La sincronización interna (seller*_ → reglas) pasa con
-        el contexto commission_sync porque el cambio de origen ya se validó
-        y ya quedó en tracking."""
-        if self.env.context.get('commission_sync') or self.env.su:
-            return
-        locked = orders.filtered(lambda s: s.state in ('sale', 'done'))
-        if locked and not self.env.user.has_group('om_advanced_commission.group_commission_manager'):
-            raise UserError(
-                "Las reglas de comisión de una orden confirmada están congeladas. "
-                "Solo un Administrador de Comisiones puede modificarlas (%s)."
-                % ', '.join(locked.mapped('name')))
+        """Sin candado: las reglas se pueden editar en cualquier estado (el
+        ayudante de un vendedor debe poder cambiar el comisionista). El
+        control es la bitácora en el chatter y el realineo en tiempo real."""
+        return
 
     def _commission_describe(self):
         self.ensure_one()
