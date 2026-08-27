@@ -35,6 +35,17 @@
         <field name="domain_force">[('company_id', 'in', company_ids)]</field>
     </record>
 
+    <!-- Regla: el Administrador de Comisiones ve TODOS los movimientos.
+         Las reglas de grupo se unen con OR: sin esta, un administrador que
+         además es vendedor quedaba limitado a los suyos y la única forma de
+         consultar a otra persona era generar una liquidación. -->
+    <record id="commission_move_manager_rule" model="ir.rule">
+        <field name="name">Commission Move: administrador ve todo</field>
+        <field name="model_id" ref="model_commission_move"/>
+        <field name="domain_force">[(1, '=', 1)]</field>
+        <field name="groups" eval="[(4, ref('om_advanced_commission.group_commission_manager'))]"/>
+    </record>
+
     <!-- Regla: vendedores solo ven sus propios commission.move -->
     <record id="commission_move_salesperson_rule" model="ir.rule">
         <field name="name">Commission Move: vendedor solo ve los suyos</field>
