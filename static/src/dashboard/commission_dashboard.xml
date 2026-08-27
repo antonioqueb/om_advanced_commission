@@ -4,157 +4,291 @@
 <t t-name="om_advanced_commission.CommissionDashboard">
     <div class="om-comm-dash">
 
-        <!-- Encabezado -->
-        <div class="om-comm-header">
-            <div class="om-comm-title">
-                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                    <circle cx="7" cy="7" r="3"/>
-                    <circle cx="17" cy="17" r="3"/>
-                    <line x1="19" y1="5" x2="5" y2="19"/>
-                </svg>
-                <div>
-                    <h1>Comisiones</h1>
-                    <span t-if="state.data" t-esc="state.data.month_label"/>
+        <!-- ══ HERO ══════════════════════════════════════════ -->
+        <div class="om-comm-hero">
+            <div class="om-comm-hero-top">
+                <div class="om-comm-brand">
+                    <div class="om-comm-brand-icon">
+                        <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                            <circle cx="7" cy="7" r="2.6"/>
+                            <circle cx="17" cy="17" r="2.6"/>
+                            <line x1="18.5" y1="5.5" x2="5.5" y2="18.5"/>
+                        </svg>
+                    </div>
+                    <div>
+                        <h1>Comisiones</h1>
+                        <span class="om-comm-live">
+                            <i class="om-comm-live-dot"/>
+                            En tiempo real
+                            <t t-if="state.data"> · <t t-esc="state.data.updated_at"/></t>
+                        </span>
+                    </div>
+                </div>
+
+                <div class="om-comm-controls" t-if="state.data">
+                    <div class="om-comm-seg" title="Cómo se corta el periodo">
+                        <button t-att-class="'om-comm-seg-btn ' + (state.basis === 'order' ? 'active' : '')"
+                                t-on-click="() => this.setBasis('order')">Por venta</button>
+                        <button t-att-class="'om-comm-seg-btn ' + (state.basis === 'payment' ? 'active' : '')"
+                                t-on-click="() => this.setBasis('payment')">Por cobro</button>
+                    </div>
+
+                    <select t-if="state.data.is_authorizer"
+                            class="om-comm-select"
+                            t-on-change="onSellerChange">
+                        <option value="">Todos los comisionistas</option>
+                        <t t-foreach="state.data.sellers" t-as="seller" t-key="seller.id">
+                            <option t-att-value="seller.id"
+                                    t-att-selected="seller.id === state.partnerId ? 'selected' : undefined"
+                                    t-esc="seller.name"/>
+                        </t>
+                    </select>
+
+                    <div class="om-comm-monthnav">
+                        <button class="om-comm-btn om-comm-btn-icon" t-on-click="() => this.shiftMonth(-1)" title="Mes anterior">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+                        </button>
+                        <span class="om-comm-month" t-esc="state.data.month_label"/>
+                        <button class="om-comm-btn om-comm-btn-icon"
+                                t-att-disabled="state.data.is_current_month"
+                                t-on-click="() => this.shiftMonth(1)" title="Mes siguiente">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+                        </button>
+                    </div>
+
+                    <button class="om-comm-btn om-comm-btn-icon" t-on-click="load" title="Actualizar">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+                    </button>
+                    <button t-att-class="'om-comm-btn om-comm-btn-icon ' + (state.showHelp ? 'active' : '')" t-on-click="toggleHelp" title="¿Cómo leer este panel?">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+                    </button>
+                    <button class="om-comm-btn om-comm-btn-primary" t-on-click="printReport">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
+                        <span>PDF</span>
+                    </button>
                 </div>
             </div>
-            <div class="om-comm-controls" t-if="state.data">
-                <select class="om-comm-select" t-on-change="onBasisChange" title="Cómo se corta el periodo">
-                    <option value="order" t-att-selected="state.basis === 'order' ? 'selected' : undefined">Por fecha de venta</option>
-                    <option value="payment" t-att-selected="state.basis === 'payment' ? 'selected' : undefined">Por fecha de cobro</option>
-                </select>
-                <select t-if="state.data.is_authorizer"
-                        class="om-comm-select"
-                        t-on-change="onSellerChange">
-                    <option value="">Todos los vendedores</option>
-                    <t t-foreach="state.data.sellers" t-as="seller" t-key="seller.id">
-                        <option t-att-value="seller.id"
-                                t-att-selected="seller.id === state.partnerId ? 'selected' : undefined"
-                                t-esc="seller.name"/>
-                    </t>
-                </select>
-                <div class="om-comm-monthnav">
-                    <button class="om-comm-btn" t-on-click="() => this.shiftMonth(-1)" title="Mes anterior">
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
-                    </button>
-                    <span class="om-comm-month" t-esc="state.data.month_label"/>
-                    <button class="om-comm-btn"
-                            t-att-disabled="state.data.is_current_month"
-                            t-on-click="() => this.shiftMonth(1)" title="Mes siguiente">
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
-                    </button>
+
+            <div class="om-comm-hero-body" t-if="!state.loading and state.data">
+                <div class="om-comm-hero-main">
+                    <span class="om-comm-hero-label">
+                        <t t-if="state.data.is_authorizer and !state.partnerId">Comisión total de</t>
+                        <t t-else="">Tu comisión de</t>
+                        <strong t-esc="state.data.month_label"/>
+                    </span>
+                    <div class="om-comm-hero-value">
+                        <span class="om-comm-hero-cur" t-esc="state.data.currency_symbol"/>
+                        <t t-esc="fmt(state.data.kpis.total)"/>
+                    </div>
+                    <div class="om-comm-hero-sub">
+                        <span><strong t-esc="state.data.kpis.count"/> movimiento(s)</span>
+                        <span class="om-comm-dot-sep"/>
+                        <span><strong t-esc="orderCount"/> orden(es)</span>
+                        <span class="om-comm-dot-sep"/>
+                        <span>Base cobrada <strong><t t-esc="state.data.currency_symbol"/><t t-esc="fmt(state.data.kpis.base)"/></strong></span>
+                    </div>
+
+                    <div class="om-comm-comp" t-if="composition.total">
+                        <div class="om-comm-comp-bar">
+                            <div class="om-comm-comp-paid" t-att-style="barStyle(composition.paid)" t-att-title="'Pagado ' + fmt(state.data.kpis.invoiced)"/>
+                            <div class="om-comm-comp-settled" t-att-style="barStyle(composition.settled)" t-att-title="'En liquidación ' + fmt(state.data.kpis.settled)"/>
+                            <div class="om-comm-comp-draft" t-att-style="barStyle(composition.draft)" t-att-title="'Pendiente ' + fmt(state.data.kpis.draft)"/>
+                        </div>
+                        <div class="om-comm-comp-legend">
+                            <span><i class="om-comm-sw om-comm-sw-paid"/>Pagado <t t-esc="Math.round(composition.paid)"/>%</span>
+                            <span><i class="om-comm-sw om-comm-sw-settled"/>En liquidación <t t-esc="Math.round(composition.settled)"/>%</span>
+                            <span><i class="om-comm-sw om-comm-sw-draft"/>Pendiente <t t-esc="Math.round(composition.draft)"/>%</span>
+                        </div>
+                    </div>
                 </div>
-                <button class="om-comm-btn" t-on-click="load" title="Actualizar">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
-                </button>
-                <button class="om-comm-btn om-comm-btn-primary" t-on-click="printReport">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
-                    <span>Imprimir PDF</span>
-                </button>
+
+                <div class="om-comm-trend">
+                    <span class="om-comm-trend-title">Últimos 6 meses</span>
+                    <div class="om-comm-trend-bars">
+                        <t t-foreach="state.data.trend" t-as="item" t-key="item.key">
+                            <div t-att-class="'om-comm-trend-col ' + (item.current ? 'current' : '')"
+                                 t-on-click="() => this.goToMonth(item.key)"
+                                 t-att-title="item.label + ': ' + state.data.currency_symbol + fmt(item.total)">
+                                <span class="om-comm-trend-val" t-esc="fmtShort(item.total)"/>
+                                <div class="om-comm-trend-track">
+                                    <div t-att-class="'om-comm-trend-bar ' + (item.total &lt; 0 ? 'neg' : '')" t-att-style="trendHeight(item)"/>
+                                </div>
+                                <span class="om-comm-trend-lbl" t-esc="item.label"/>
+                            </div>
+                        </t>
+                    </div>
+                </div>
             </div>
         </div>
 
-        <!-- Cargando -->
+        <!-- ══ AYUDA ═════════════════════════════════════════ -->
+        <div class="om-comm-help" t-if="state.showHelp">
+            <div class="om-comm-help-item">
+                <span class="om-comm-badge om-comm-badge-draft">Pendiente</span>
+                <p>Ya se cobró la factura y la comisión existe; espera el siguiente corte de liquidación.</p>
+            </div>
+            <div class="om-comm-help-item">
+                <span class="om-comm-badge om-comm-badge-settled">En liquidación</span>
+                <p>Está dentro de una hoja de liquidación aprobada o por aprobar.</p>
+            </div>
+            <div class="om-comm-help-item">
+                <span class="om-comm-badge om-comm-badge-paid">Pagado</span>
+                <p>Liquidada: facturada o pagada por nómina.</p>
+            </div>
+            <div class="om-comm-help-item">
+                <span class="om-comm-badge om-comm-badge-retained">Retenido</span>
+                <p>Los porcentajes superan lo permitido; el excedente se libera solo al aprobarse la autorización.</p>
+            </div>
+            <div class="om-comm-help-item">
+                <span class="om-comm-tag om-comm-tag-neg">Reversa / Ajuste</span>
+                <p>Un cobro se desconcilió o cambió una regla después de pagar: el delta se descuenta o suma en el siguiente corte.</p>
+            </div>
+            <div class="om-comm-help-item">
+                <span class="om-comm-seg-mini">Por venta · Por cobro</span>
+                <p><strong>Por venta</strong> agrupa por la fecha de la orden; <strong>Por cobro</strong> por la fecha en que entró el dinero (es lo que paga la liquidación).</p>
+            </div>
+        </div>
+
+        <!-- ══ CARGANDO ═════════════════════════════════════ -->
         <div t-if="state.loading" class="om-comm-loading">
             <div class="om-comm-spinner"/>
-            <span>Cargando comisiones…</span>
+            <span>Calculando comisiones…</span>
         </div>
 
         <t t-if="!state.loading and state.data">
-            <!-- KPIs -->
+            <!-- ══ KPIs ═════════════════════════════════════ -->
             <div class="om-comm-kpis">
-                <div class="om-comm-kpi">
-                    <span class="om-comm-kpi-label">Base cobrada</span>
-                    <span class="om-comm-kpi-value">
-                        <t t-esc="state.data.currency_symbol"/><t t-esc="fmt(state.data.kpis.base)"/>
-                    </span>
+                <div class="om-comm-kpi om-comm-kpi-draft">
+                    <div class="om-comm-kpi-ic">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                    </div>
+                    <div class="om-comm-kpi-txt">
+                        <span class="om-comm-kpi-label">Pendiente</span>
+                        <span class="om-comm-kpi-value"><t t-esc="state.data.currency_symbol"/><t t-esc="fmt(state.data.kpis.draft)"/></span>
+                        <span class="om-comm-kpi-sub">Esperando corte</span>
+                    </div>
                 </div>
-                <div class="om-comm-kpi om-comm-kpi-main">
-                    <span class="om-comm-kpi-label">Comisión del mes</span>
-                    <span class="om-comm-kpi-value">
-                        <t t-esc="state.data.currency_symbol"/><t t-esc="fmt(state.data.kpis.total)"/>
-                    </span>
-                    <span class="om-comm-kpi-sub"><t t-esc="state.data.kpis.count"/> movimiento(s)</span>
+                <div class="om-comm-kpi om-comm-kpi-settled">
+                    <div class="om-comm-kpi-ic">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="13" y2="17"/></svg>
+                    </div>
+                    <div class="om-comm-kpi-txt">
+                        <span class="om-comm-kpi-label">En liquidación</span>
+                        <span class="om-comm-kpi-value"><t t-esc="state.data.currency_symbol"/><t t-esc="fmt(state.data.kpis.settled)"/></span>
+                        <span class="om-comm-kpi-sub">En hoja de pago</span>
+                    </div>
                 </div>
-                <div class="om-comm-kpi">
-                    <span class="om-comm-kpi-label">Pendiente</span>
-                    <span class="om-comm-kpi-value om-comm-amber">
-                        <t t-esc="state.data.currency_symbol"/><t t-esc="fmt(state.data.kpis.draft)"/>
-                    </span>
+                <div class="om-comm-kpi om-comm-kpi-paid">
+                    <div class="om-comm-kpi-ic">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+                    </div>
+                    <div class="om-comm-kpi-txt">
+                        <span class="om-comm-kpi-label">Pagado</span>
+                        <span class="om-comm-kpi-value"><t t-esc="state.data.currency_symbol"/><t t-esc="fmt(state.data.kpis.invoiced)"/></span>
+                        <span class="om-comm-kpi-sub">Liquidado</span>
+                    </div>
                 </div>
-                <div class="om-comm-kpi">
-                    <span class="om-comm-kpi-label">En liquidación</span>
-                    <span class="om-comm-kpi-value om-comm-blue">
-                        <t t-esc="state.data.currency_symbol"/><t t-esc="fmt(state.data.kpis.settled)"/>
-                    </span>
-                </div>
-                <div class="om-comm-kpi">
-                    <span class="om-comm-kpi-label">Pagado</span>
-                    <span class="om-comm-kpi-value om-comm-green">
-                        <t t-esc="state.data.currency_symbol"/><t t-esc="fmt(state.data.kpis.invoiced)"/>
-                    </span>
-                </div>
-                <div class="om-comm-kpi" t-if="state.data.kpis.retained">
-                    <span class="om-comm-kpi-label">Retenido (por autorizar)</span>
-                    <span class="om-comm-kpi-value om-comm-amber">
-                        <t t-esc="state.data.currency_symbol"/><t t-esc="fmt(state.data.kpis.retained)"/>
-                    </span>
+                <div class="om-comm-kpi om-comm-kpi-retained" t-if="state.data.kpis.retained">
+                    <div class="om-comm-kpi-ic">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+                    </div>
+                    <div class="om-comm-kpi-txt">
+                        <span class="om-comm-kpi-label">Retenido</span>
+                        <span class="om-comm-kpi-value"><t t-esc="state.data.currency_symbol"/><t t-esc="fmt(state.data.kpis.retained)"/></span>
+                        <span class="om-comm-kpi-sub">Se libera al autorizar</span>
+                    </div>
                 </div>
             </div>
 
-            <!-- Tabla -->
-            <div class="om-comm-table-wrap" t-if="state.data.rows.length">
-                <table class="om-comm-table">
-                    <thead>
-                        <tr>
-                            <th>Fecha orden</th>
-                            <th>Orden</th>
-                            <th>Cliente</th>
-                            <th t-if="state.data.is_authorizer">Comisionista</th>
-                            <th>Factura</th>
-                            <th>Pago</th>
-                            <th class="om-comm-num">Base</th>
-                            <th class="om-comm-num">Comisión</th>
-                            <th>Estado</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <tr t-foreach="state.data.rows" t-as="row" t-key="row.id"
-                            t-att-class="row.is_refund ? 'om-comm-refund' : ''">
-                            <td t-esc="row.order_date"/>
-                            <td>
-                                <a t-if="row.order_id" href="#" class="om-comm-link"
-                                   t-on-click.prevent="() => this.openOrder(row)"
-                                   t-esc="row.order"/>
-                                <span t-else="" t-esc="row.name"/>
-                            </td>
-                            <td t-esc="row.customer"/>
-                            <td t-if="state.data.is_authorizer" t-esc="row.partner"/>
-                            <td t-esc="row.invoice"/>
-                            <td t-esc="row.payment_date"/>
-                            <td class="om-comm-num">
-                                <t t-esc="state.data.currency_symbol"/><t t-esc="fmt(row.base)"/>
-                            </td>
-                            <td class="om-comm-num om-comm-strong">
-                                <t t-esc="state.data.currency_symbol"/><t t-esc="fmt(row.amount)"/>
-                            </td>
-                            <td>
-                                <span t-att-class="'om-comm-badge ' + stateBadge(row.state).cls"
-                                      t-esc="stateBadge(row.state).label"/>
-                                <span t-if="row.retained" class="om-comm-badge om-comm-badge-retained"
-                                      title="Excedente retenido por autorización pendiente">Retenido</span>
-                            </td>
-                        </tr>
-                    </tbody>
-                </table>
+            <!-- ══ RANKING (autorizadores, sin filtro) ═══════ -->
+            <div class="om-comm-card om-comm-board"
+                 t-if="state.data.is_authorizer and !state.partnerId and leaderboard.length > 1">
+                <div class="om-comm-card-head">
+                    <h2>Por comisionista</h2>
+                    <span class="om-comm-muted"><t t-esc="leaderboard.length"/> con movimientos</span>
+                </div>
+                <div class="om-comm-board-list">
+                    <t t-foreach="leaderboard" t-as="p" t-key="p.name">
+                        <div class="om-comm-board-row">
+                            <span class="om-comm-board-rank" t-esc="p_index + 1"/>
+                            <div class="om-comm-board-body">
+                                <div class="om-comm-board-top">
+                                    <span class="om-comm-board-name" t-esc="p.name"/>
+                                    <span class="om-comm-board-amt"><t t-esc="state.data.currency_symbol"/><t t-esc="fmt(p.amount)"/></span>
+                                </div>
+                                <div class="om-comm-board-track">
+                                    <div t-att-class="'om-comm-board-bar ' + (p.amount &lt; 0 ? 'neg' : '')" t-att-style="barStyle(p.pct)"/>
+                                </div>
+                            </div>
+                        </div>
+                    </t>
+                </div>
             </div>
 
+            <!-- ══ TABLA ════════════════════════════════════ -->
+            <div class="om-comm-card om-comm-table-wrap" t-if="state.data.rows.length">
+                <div class="om-comm-card-head">
+                    <h2>Detalle</h2>
+                    <span class="om-comm-muted">Toca una orden para abrirla</span>
+                </div>
+                <div class="om-comm-table-scroll">
+                    <table class="om-comm-table">
+                        <thead>
+                            <tr>
+                                <th>Fecha</th>
+                                <th>Orden</th>
+                                <th>Cliente</th>
+                                <th t-if="state.data.is_authorizer">Comisionista</th>
+                                <th>Factura</th>
+                                <th>Cobro</th>
+                                <th class="om-comm-num">Base</th>
+                                <th class="om-comm-num">Comisión</th>
+                                <th>Estado</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr t-foreach="state.data.rows" t-as="row" t-key="row.id"
+                                t-att-class="row.is_refund ? 'om-comm-refund' : ''">
+                                <td class="om-comm-muted" t-esc="row.order_date"/>
+                                <td>
+                                    <a t-if="row.order_id" href="#" class="om-comm-link"
+                                       t-on-click.prevent="() => this.openOrder(row)"
+                                       t-esc="row.order"/>
+                                    <span t-else="" t-esc="row.name"/>
+                                    <span t-if="row.kind" class="om-comm-tag om-comm-tag-neg" t-esc="kindLabel(row.kind)"/>
+                                </td>
+                                <td class="om-comm-ellipsis" t-att-title="row.customer" t-esc="row.customer"/>
+                                <td t-if="state.data.is_authorizer" class="om-comm-ellipsis" t-esc="row.partner"/>
+                                <td class="om-comm-mono" t-esc="row.invoice"/>
+                                <td class="om-comm-muted" t-esc="row.payment_date"/>
+                                <td class="om-comm-num om-comm-muted">
+                                    <t t-if="row.base"><t t-esc="state.data.currency_symbol"/><t t-esc="fmt(row.base)"/></t>
+                                    <t t-else="">—</t>
+                                </td>
+                                <td class="om-comm-num om-comm-strong">
+                                    <t t-esc="state.data.currency_symbol"/><t t-esc="fmt(row.amount)"/>
+                                </td>
+                                <td>
+                                    <span t-att-class="'om-comm-badge ' + stateBadge(row.state).cls"
+                                          t-esc="stateBadge(row.state).label"/>
+                                    <span t-if="row.retained" class="om-comm-badge om-comm-badge-retained"
+                                          title="Excedente retenido por autorización pendiente">Retenido</span>
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- ══ VACÍO ════════════════════════════════════ -->
             <div t-if="!state.data.rows.length" class="om-comm-empty">
-                <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-                    <circle cx="7" cy="7" r="3"/>
-                    <circle cx="17" cy="17" r="3"/>
-                    <line x1="19" y1="5" x2="5" y2="19"/>
-                </svg>
-                <p>Sin comisiones en este periodo.</p>
+                <div class="om-comm-empty-ic">
+                    <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+                        <circle cx="7" cy="7" r="2.6"/><circle cx="17" cy="17" r="2.6"/><line x1="18.5" y1="5.5" x2="5.5" y2="18.5"/>
+                    </svg>
+                </div>
+                <h3>Sin comisiones en <t t-esc="state.data.month_label"/></h3>
+                <p>Las comisiones aparecen aquí en cuanto se concilia un cobro. Prueba otro mes o cambia el corte a <strong>Por cobro</strong>.</p>
             </div>
         </t>
     </div>

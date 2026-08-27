@@ -400,6 +400,9 @@ class CommissionMove(models.Model):
                 'amount': round(amt, 2),
                 'state': move.state,
                 'is_refund': move.is_refund or move.is_reversal,
+                'kind': ('reversal' if move.adjustment_kind == 'reversal'
+                         else 'adjustment' if move.adjustment_kind == 'adjustment'
+                         else 'refund' if move.is_refund else ''),
                 'retained': bool(move.retention_factor and 0 < move.retention_factor < 1.0),
             })
         for key in ('base', 'total', 'draft', 'settled', 'invoiced', 'retained'):
@@ -409,6 +412,32 @@ class CommissionMove(models.Model):
         if is_auth:
             for partner in self.search(base_domain).mapped('partner_id').sorted('display_name'):
                 sellers.append({'id': partner.id, 'name': partner.display_name})
+
+        # Tendencia: 6 meses (el seleccionado incluido), mismo corte y filtros.
+        trend = []
+        short = ['ene', 'feb', 'mar', 'abr', 'may', 'jun',
+                 'jul', 'ago', 'sep', 'oct', 'nov', 'dic']
+        y, m = year, mon
+        months = []
+        for _ in range(6):
+            months.append((y, m))
+            m -= 1
+            if m == 0:
+                y, m = y - 1, 12
+        for (ty, tm) in reversed(months):
+            f = date(ty, tm, 1)
+            l = date(ty, tm, monthrange(ty, tm)[1])
+            dom = [('state', '!=', 'cancel'), ('company_id', '=', self.env.company.id)]
+            dom += self._commission_period_domain(f, l, basis)
+            if not is_auth:
+                dom.append(('partner_id.user_ids', 'in', [user.id]))
+            elif partner_id:
+                dom.append(('partner_id', '=', int(partner_id)))
+            total = 0.0
+            for mv in self.search(dom):
+                total += to_company(mv, mv.amount)
+            trend.append({'key': '%04d-%02d' % (ty, tm), 'label': '%s %s' % (short[tm - 1], str(ty)[2:]),
+                          'total': round(total, 2), 'current': (ty, tm) == (year, mon)})
 
         month_names = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio',
                        'julio', 'agosto', 'septiembre', 'octubre',
@@ -423,4 +452,6 @@ class CommissionMove(models.Model):
             'kpis': kpis,
             'rows': rows,
             'sellers': sellers,
+            'trend': trend,
+            'updated_at': format_date(self.env, today, date_format='dd MMM yyyy'),
         }
