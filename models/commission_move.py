@@ -330,15 +330,30 @@ class CommissionMove(models.Model):
     # ------------------------------------------------------------------
     # Panel de Comisiones (client action OWL)
     # ------------------------------------------------------------------
+    ROLE_LABELS = {
+        'architect': 'Embajadores',
+        'construction': 'Constructoras',
+        'referrer': 'Referidores',
+    }
+    ROLE_SINGULAR = {
+        'internal': 'Vendedor',
+        'architect': 'Embajador',
+        'construction': 'Constructora',
+        'referrer': 'Referidor',
+    }
+
     @api.model
     def get_commission_dashboard_data(self, month=None, partner_id=None, basis='order'):
-        """Datos del Panel. Quien no es autorizador SOLO ve sus propias
-        comisiones; el filtro por vendedor existe solo para autorizadores.
-        Los datos contables se extraen con sudo (el vendedor no tiene
-        permisos de contabilidad)."""
+        """Datos del Panel de Comisiones.
+
+        Estructura: sección principal = VENDEDORES internos (todos, con o sin
+        movimientos), sección aparte = comisionistas EXTERNOS por tipo,
+        incidencias y detalle al final. Quien no es Administrador de
+        Comisiones SOLO recibe sus propios movimientos (además de la regla de
+        registro): nunca ve a los demás. Los datos contables (folio de factura,
+        fecha de pago) se extraen con sudo porque el vendedor no tiene permisos
+        de contabilidad."""
         user = self.env.user
-        # Consultar a cualquier persona = Administrador de Comisiones (el
-        # autorizador lo implica). No exige liquidar ni ningún paso previo.
         is_auth = user.has_group('om_advanced_commission.group_commission_manager')
         today = fields.Date.context_today(self)
         try:
@@ -360,29 +375,7 @@ class CommissionMove(models.Model):
             domain.append(('partner_id', '=', int(partner_id)))
 
         moves = self.search(domain, order='date desc, id desc')
-
-        Incident = self.env['commission.incident']
-        incidents = {'count': 0, 'rows': []}
-        blocked_ids = set()
-        if is_auth:
-            try:
-                Incident.sudo()._detect_receipt_mismatches()
-            except Exception:  # noqa: BLE001
-                pass
-            open_inc = Incident.sudo().search([('state', '=', 'open'), ('company_id', '=', self.env.company.id)])
-            incidents = {
-                'count': len(open_inc),
-                'rows': [{
-                    'id': i.id, 'name': i.name,
-                    'kind': dict(i._fields['kind'].selection)[i.kind],
-                    'severity': i.severity,
-                    'partner': i.partner_id.display_name or '',
-                    'payment': i.payment_id.name or i.payment_move_id.name or '',
-                    'expected': round(i.amount_expected, 2), 'actual': round(i.amount_actual, 2),
-                    'ratio': i.ratio,
-                } for i in open_inc[:6]],
-            }
-            blocked_ids = set(Incident._blocked_commission_moves(moves).ids)
+        all_moves = self.search(base_domain) if is_auth else moves
 
         company = self.env.company
         company_cur = company.currency_id
@@ -396,26 +389,67 @@ class CommissionMove(models.Model):
         def fmt_dt(value):
             return format_date(self.env, value, date_format='dd MMM yyyy') if value else ''
 
-        kpis = {'base': 0.0, 'total': 0.0, 'draft': 0.0,
-                'settled': 0.0, 'invoiced': 0.0, 'retained': 0.0, 'count': len(moves)}
+        # ── Universo de VENDEDORES internos (todos, aunque no comisionen) ──
+        Partner = self.env['res.partner'].sudo()
+        seller_partners = Partner
+        if is_auth:
+            try:
+                seller_partners = Partner.search(self.env['sale.order']._commission_seller_domain(), order='name')
+            except Exception:  # noqa: BLE001
+                seller_partners = Partner
+        seller_ids = set(seller_partners.ids)
+
+        def is_internal(m):
+            if m.rule_role:
+                return m.rule_role == 'internal'
+            return m.partner_id.id in seller_ids
+
+        def role_key(m):
+            if is_internal(m):
+                return 'internal'
+            return m.rule_role or 'other'
+
+        def new_bucket():
+            return {'total': 0.0, 'draft': 0.0, 'settled': 0.0, 'invoiced': 0.0,
+                    'retained': 0.0, 'base': 0.0, 'count': 0, 'orders': set(), 'seen': set()}
+
+        def feed(bucket, m):
+            amt = to_company(m, m.amount)
+            bucket['total'] += amt
+            if m.state in ('draft', 'settled', 'invoiced'):
+                bucket[m.state] += amt
+            if m.retention_factor and 0 < m.retention_factor < 1.0:
+                bucket['retained'] += amt / m.retention_factor - amt
+            bucket['count'] += 1
+            if m.sale_order_id:
+                bucket['orders'].add(m.sale_order_id.id)
+            if not m.origin_move_id:
+                key = m.partial_reconcile_id.id or m.id
+                if key not in bucket['seen']:
+                    bucket['seen'].add(key)
+                    bucket['base'] += to_company(m, m.base_amount_paid)
+
+        def pack(bucket):
+            return {k: round(v, 2) for k, v in bucket.items() if k in
+                    ('total', 'draft', 'settled', 'invoiced', 'retained', 'base')} | {
+                'count': bucket['count'], 'orders': len(bucket['orders'])}
+
+        # ── KPIs del filtro activo + filas de detalle ──
+        kpis_b = new_bucket()
         rows = []
         for move in moves:
+            feed(kpis_b, move)
             sm = move.sudo()
-            amt = to_company(move, move.amount)
-            kpis['total'] += amt
-            kpis['base'] += to_company(move, move.base_amount_paid)
-            if move.state in kpis:
-                kpis[move.state] += amt
-            if move.retention_factor and 0 < move.retention_factor < 1.0:
-                kpis['retained'] += amt / move.retention_factor - amt
             so = sm.sale_order_id
             inv = sm.invoice_id or sm.invoice_line_id.move_id
             pay = sm.payment_id
+            rk = role_key(move)
             rows.append({
                 'id': move.id,
                 'name': move.name,
                 'partner': move.partner_id.display_name,
                 'partner_id': move.partner_id.id,
+                'role': self.ROLE_SINGULAR.get(rk, 'Otro'),
                 'order_id': so.id if so else False,
                 'order': so.name if so else '',
                 'order_date': fmt_dt(so.date_order) if so else fmt_dt(move.date),
@@ -423,27 +457,75 @@ class CommissionMove(models.Model):
                 'invoice': (inv.name or '') if inv else '',
                 'payment_date': fmt_dt(pay.date) if pay else fmt_dt(move.date),
                 'base': round(to_company(move, move.base_amount_paid), 2),
-                'amount': round(amt, 2),
+                'amount': round(to_company(move, move.amount), 2),
                 'state': move.state,
                 'is_refund': move.is_refund or move.is_reversal,
                 'kind': ('reversal' if move.adjustment_kind == 'reversal'
                          else 'adjustment' if move.adjustment_kind == 'adjustment'
                          else 'refund' if move.is_refund else ''),
                 'retained': bool(move.retention_factor and 0 < move.retention_factor < 1.0),
-                'incident': move.id in blocked_ids,
             })
-        for key in ('base', 'total', 'draft', 'settled', 'invoiced', 'retained'):
-            kpis[key] = round(kpis[key], 2)
+        kpis = pack(kpis_b)
 
-        sellers = []
+        # ── Secciones (solo administradores, sobre TODO el periodo) ──
+        sellers, externals, incidents = [], [], {'count': 0, 'rows': []}
+        blocked_ids = set()
+        totals = {'sellers': 0.0, 'externals': 0.0}
         if is_auth:
-            for partner in self.search(base_domain).mapped('partner_id').sorted('display_name'):
-                sellers.append({'id': partner.id, 'name': partner.display_name})
+            per_partner = {}
+            ext_roles = {}
+            for m in all_moves:
+                rk = role_key(m)
+                if rk == 'internal':
+                    feed(per_partner.setdefault(m.partner_id.id, new_bucket()), m)
+                else:
+                    role = ext_roles.setdefault(rk, {'partners': {}, 'bucket': new_bucket()})
+                    feed(role['bucket'], m)
+                    feed(role['partners'].setdefault(m.partner_id.id, new_bucket()), m)
+            for partner in seller_partners:
+                b = per_partner.get(partner.id, new_bucket())
+                sellers.append({'id': partner.id, 'name': partner.display_name, 'user_login': partner.user_ids[:1].login or '', **pack(b)})
+            # vendedores con movimientos que ya no son usuarios de ventas (histórico)
+            for pid, b in per_partner.items():
+                if pid not in seller_ids:
+                    partner = Partner.browse(pid)
+                    sellers.append({'id': pid, 'name': partner.display_name, 'user_login': '', 'inactive': True, **pack(b)})
+            sellers.sort(key=lambda x: (-x['total'], x['name']))
+            totals['sellers'] = round(sum(x['total'] for x in sellers), 2)
+            for rk, role in sorted(ext_roles.items(), key=lambda kv: -kv[1]['bucket']['total']):
+                members = []
+                for pid, b in role['partners'].items():
+                    members.append({'id': pid, 'name': Partner.browse(pid).display_name, **pack(b)})
+                members.sort(key=lambda x: -x['total'])
+                externals.append({'role': rk, 'label': self.ROLE_LABELS.get(rk, 'Otros'),
+                                  'members': members, **pack(role['bucket'])})
+            totals['externals'] = round(sum(x['total'] for x in externals), 2)
 
-        # Tendencia: 6 meses (el seleccionado incluido), mismo corte y filtros.
+            Incident = self.env['commission.incident']
+            try:
+                Incident.sudo()._detect_receipt_mismatches()
+            except Exception:  # noqa: BLE001
+                pass
+            open_inc = Incident.sudo().search([('state', '=', 'open'), ('company_id', '=', company.id)])
+            incidents = {
+                'count': len(open_inc),
+                'rows': [{
+                    'id': i.id, 'name': i.name,
+                    'kind': dict(i._fields['kind'].selection)[i.kind],
+                    'severity': i.severity,
+                    'partner': i.partner_id.display_name or '',
+                    'payment': i.payment_id.name or i.payment_move_id.name or '',
+                    'expected': round(i.amount_expected, 2), 'actual': round(i.amount_actual, 2),
+                    'ratio': i.ratio,
+                } for i in open_inc[:8]],
+            }
+            blocked_ids = set(Incident._blocked_commission_moves(moves).ids)
+        for r in rows:
+            r['incident'] = r['id'] in blocked_ids
+
+        # ── Tendencia 6 meses (mismo corte y filtro) ──
         trend = []
-        short = ['ene', 'feb', 'mar', 'abr', 'may', 'jun',
-                 'jul', 'ago', 'sep', 'oct', 'nov', 'dic']
+        short = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic']
         y, m = year, mon
         months = []
         for _ in range(6):
@@ -454,7 +536,7 @@ class CommissionMove(models.Model):
         for (ty, tm) in reversed(months):
             f = date(ty, tm, 1)
             l = date(ty, tm, monthrange(ty, tm)[1])
-            dom = [('state', '!=', 'cancel'), ('company_id', '=', self.env.company.id)]
+            dom = [('state', '!=', 'cancel'), ('company_id', '=', company.id)]
             dom += self._commission_period_domain(f, l, basis)
             if not is_auth:
                 dom.append(('partner_id.user_ids', 'in', [user.id]))
@@ -467,19 +549,28 @@ class CommissionMove(models.Model):
                           'total': round(total, 2), 'current': (ty, tm) == (year, mon)})
 
         month_names = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio',
-                       'julio', 'agosto', 'septiembre', 'octubre',
-                       'noviembre', 'diciembre']
+                       'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre']
+        month_label = '%s %s' % (month_names[mon - 1], year)
+        basis_help = (
+            'Comisiones de ventas con fecha de orden en %s (lo que cada vendedor generó ese mes).' % month_label
+            if basis == 'order' else
+            'Comisiones de cobros recibidos en %s (lo que entra a la liquidación de ese mes).' % month_label)
+        selected = Partner.browse(int(partner_id)).display_name if (is_auth and partner_id) else ''
         return {
             'is_authorizer': is_auth,
             'basis': basis,
+            'basis_help': basis_help,
             'month': '%04d-%02d' % (year, mon),
-            'month_label': '%s %s' % (month_names[mon - 1], year),
+            'month_label': month_label,
             'is_current_month': (year, mon) == (today.year, today.month),
             'currency_symbol': company_cur.symbol or '$',
             'kpis': kpis,
+            'totals': totals,
             'rows': rows,
             'sellers': sellers,
-            'trend': trend,
+            'externals': externals,
+            'selected_partner': selected,
             'incidents': incidents,
+            'trend': trend,
             'updated_at': format_date(self.env, today, date_format='dd MMM yyyy'),
         }
