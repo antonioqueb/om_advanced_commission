@@ -55,14 +55,19 @@ class SaleCommissionRule(models.Model):
     def _check_external_rule(self):
         for rule in self:
             so = rule.sale_order_id
-            # 1) El rol Vendedor solo nace de Vendedor 1/2/3 (sync interno).
-            if rule.role_type == 'internal' and not self.env.context.get('commission_sync') \
-                    and rule.seller_slot == 0:
+            # 1) El rol Vendedor solo nace de Vendedor 1/2/3. La regla interna
+            #    la crea el sistema (sync) y al guardar desde el formulario
+            #    puede llegar sin contexto ni seller_slot (campo readonly):
+            #    es legítima siempre que el beneficiario SEA un vendedor de
+            #    la orden. Solo se bloquea si alguien mete rol Vendedor a mano
+            #    para un contacto que no está arriba.
+            if rule.role_type == 'internal':
+                sellers = (so.seller1_id | so.seller2_id | so.seller3_id) if so else self.env['res.partner']
+                if self.env.context.get('commission_sync') or rule.seller_slot or rule.partner_id in sellers:
+                    continue
                 raise ValidationError(
                     "Los vendedores se capturan arriba, en Vendedor 1 / 2 / 3. "
                     "En 'Otras comisiones' solo van embajadores, constructoras o referidores.")
-            if rule.role_type == 'internal':
-                continue
             # 2) Un usuario interno de Odoo no puede ir como comisionista externo.
             if self._partner_is_internal_user(rule.partner_id):
                 raise ValidationError(
