@@ -12,7 +12,7 @@
                         <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="7" cy="7" r="2.6"/><circle cx="17" cy="17" r="2.6"/><line x1="18.5" y1="5.5" x2="5.5" y2="18.5"/></svg>
                     </div>
                     <div>
-                        <h1>Comisiones</h1>
+                        <h1><t t-if="isExternals">Comisionistas externos</t><t t-else="">Comisiones</t></h1>
                         <span class="om-comm-live"><i class="om-comm-live-dot"/> En tiempo real<t t-if="state.data"> · <t t-esc="state.data.updated_at"/></t></span>
                     </div>
                 </div>
@@ -58,7 +58,7 @@
             <div class="om-comm-hero-body" t-if="!state.loading and state.data">
                 <div class="om-comm-hero-main">
                     <span class="om-comm-hero-label">
-                        <t t-if="state.data.is_authorizer and !state.partnerId">Comisión total de</t>
+                        <t t-if="state.data.is_authorizer and !state.partnerId"><t t-esc="isExternals ? 'Comisión de externos en' : 'Comisión de vendedores en'"/></t>
                         <t t-elif="state.data.is_authorizer">Comisión de <t t-esc="state.data.selected_partner"/> en</t>
                         <t t-else="">Tu comisión de</t>
                         <strong t-esc="state.data.month_label"/>
@@ -68,12 +68,7 @@
                         <span><strong t-esc="state.data.kpis.count"/> movimiento(s)</span><span class="om-comm-dot-sep"/>
                         <span><strong t-esc="state.data.kpis.orders"/> orden(es)</span><span class="om-comm-dot-sep"/>
                         <span>Base cobrada <strong><t t-esc="state.data.currency_symbol"/><t t-esc="fmt(state.data.kpis.base)"/></strong></span>
-                        <t t-if="state.data.is_authorizer and !state.partnerId">
-                            <span class="om-comm-dot-sep"/>
-                            <span>Vendedores <strong><t t-esc="state.data.currency_symbol"/><t t-esc="fmt(state.data.totals.sellers)"/></strong></span>
-                            <span class="om-comm-dot-sep"/>
-                            <span>Externos <strong><t t-esc="state.data.currency_symbol"/><t t-esc="fmt(state.data.totals.externals)"/></strong></span>
-                        </t>
+
                     </div>
                     <div class="om-comm-comp" t-if="composition.total">
                         <div class="om-comm-comp-bar">
@@ -140,7 +135,7 @@
             </div>
 
             <!-- ══ VENDEDORES (administradores) ══ -->
-            <div class="om-comm-card om-comm-sellers" t-if="state.data.is_authorizer">
+            <div class="om-comm-card om-comm-sellers" t-if="state.data.is_authorizer and !isExternals">
                 <div class="om-comm-card-head">
                     <div>
                         <h2>Vendedores</h2>
@@ -194,7 +189,7 @@
             </div>
 
             <!-- ══ COMISIONISTAS EXTERNOS POR TIPO (administradores) ══ -->
-            <div class="om-comm-card om-comm-externals" t-if="state.data.is_authorizer">
+            <div class="om-comm-card om-comm-externals" t-if="state.data.is_authorizer and isExternals">
                 <div class="om-comm-card-head">
                     <div>
                         <h2>Comisionistas externos</h2>

@@ -343,7 +343,7 @@ class CommissionMove(models.Model):
     }
 
     @api.model
-    def get_commission_dashboard_data(self, month=None, partner_id=None, basis='order'):
+    def get_commission_dashboard_data(self, month=None, partner_id=None, basis='order', scope='sellers'):
         """Datos del Panel de Comisiones.
 
         Estructura: sección principal = VENDEDORES internos (todos, con o sin
@@ -374,6 +374,7 @@ class CommissionMove(models.Model):
         elif partner_id:
             domain.append(('partner_id', '=', int(partner_id)))
 
+        scope = scope if scope in ('sellers', 'externals') else 'sellers'
         moves = self.search(domain, order='date desc, id desc')
         all_moves = self.search(base_domain) if is_auth else moves
 
@@ -408,6 +409,14 @@ class CommissionMove(models.Model):
             if is_internal(m):
                 return 'internal'
             return m.rule_role or 'other'
+
+        # PANELES SEPARADOS: el de vendedores solo trae movimientos internos y
+        # el de externos solo externos (para administradores; el vendedor
+        # siempre ve solo lo suyo).
+        if is_auth:
+            want_internal = scope == 'sellers'
+            moves = moves.filtered(lambda m: is_internal(m) == want_internal)
+            all_moves = all_moves.filtered(lambda m: is_internal(m) == want_internal)
 
         def new_bucket():
             return {'total': 0.0, 'draft': 0.0, 'settled': 0.0, 'invoiced': 0.0,
@@ -545,6 +554,8 @@ class CommissionMove(models.Model):
                 dom.append(('partner_id', '=', int(partner_id)))
             total = 0.0
             for mv in self.search(dom):
+                if is_auth and is_internal(mv) != (scope == 'sellers'):
+                    continue
                 total += to_company(mv, mv.amount)
             trend.append({'key': '%04d-%02d' % (ty, tm), 'label': '%s %s' % (short[tm - 1], str(ty)[2:]),
                           'total': round(total, 2), 'current': (ty, tm) == (year, mon)})
@@ -559,6 +570,7 @@ class CommissionMove(models.Model):
         selected = Partner.browse(int(partner_id)).display_name if (is_auth and partner_id) else ''
         return {
             'is_authorizer': is_auth,
+            'scope': scope,
             'basis': basis,
             'basis_help': basis_help,
             'month': '%04d-%02d' % (year, mon),

@@ -22,6 +22,7 @@ export class CommissionDashboard extends Component {
             month: null,          // 'YYYY-MM'; null = mes actual
             partnerId: false,     // filtro por persona (solo administradores)
             basis: "order",       // 'order' | 'payment'
+            scope: (this.props.action && this.props.action.context && this.props.action.context.commission_panel) === "externals" ? "externals" : "sellers",
             data: null,
             showHelp: false,
             showDetail: false,
@@ -38,7 +39,7 @@ export class CommissionDashboard extends Component {
                 "commission.move",
                 "get_commission_dashboard_data",
                 [],
-                { month: this.state.month, partner_id: this.state.partnerId || null, basis: this.state.basis }
+                { month: this.state.month, partner_id: this.state.partnerId || null, basis: this.state.basis, scope: this.state.scope }
             );
             this.state.month = this.state.data.month;
             // El vendedor ve su detalle abierto: es su contenido principal.
@@ -105,6 +106,9 @@ export class CommissionDashboard extends Component {
     }
     kindLabel(kind) {
         return { reversal: "Reversa", adjustment: "Ajuste", refund: "Devolución" }[kind] || "";
+    }
+    get isExternals() {
+        return this.state.scope === "externals";
     }
     get basisHint() {
         const b = BASIS.find((x) => x.key === this.state.basis);

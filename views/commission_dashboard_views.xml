@@ -4,6 +4,15 @@
     <record id="action_commission_dashboard" model="ir.actions.client">
         <field name="name">Panel de Comisiones</field>
         <field name="tag">om_advanced_commission.dashboard</field>
+        <field name="context">{'commission_panel': 'sellers'}</field>
+    </record>
+
+    <!-- Panel aparte para comisionistas EXTERNOS (embajadores, constructoras,
+         referidores). Solo administradores: el vendedor no lo ve. -->
+    <record id="action_commission_dashboard_externals" model="ir.actions.client">
+        <field name="name">Comisionistas Externos</field>
+        <field name="tag">om_advanced_commission.dashboard</field>
+        <field name="context">{'commission_panel': 'externals'}</field>
     </record>
 
     <!-- Pantalla principal de la app Comisiones -->
@@ -12,5 +21,11 @@
               parent="menu_commission_root"
               action="action_commission_dashboard"
               sequence="1"/>
+    <menuitem id="menu_commission_dashboard_externals"
+              name="Comisionistas Externos"
+              parent="menu_commission_root"
+              action="action_commission_dashboard_externals"
+              sequence="2"
+              groups="om_advanced_commission.group_commission_manager"/>
 
 </odoo>
