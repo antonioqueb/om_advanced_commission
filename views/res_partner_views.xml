@@ -9,6 +9,7 @@
                       groups="om_advanced_commission.group_commission_manager">
                     <group>
                         <group string="Liquidación">
+                            <field name="commission_excluded" widget="boolean_toggle"/>
                             <field name="commission_payout_method"/>
                             <field name="commission_product_id"
                                    invisible="commission_payout_method != 'vendor_bill'"/>

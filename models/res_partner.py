@@ -5,6 +5,10 @@ class ResPartner(models.Model):
     _inherit = 'res.partner'
 
     commission_move_ids = fields.One2many('commission.move', 'partner_id', string='Movimientos de Comisión')
+    commission_excluded = fields.Boolean(
+        string='Excluido de comisiones',
+        help='Este contacto NUNCA genera comisiones nuevas aunque venda o figure como '
+             'vendedor/beneficiario en una orden. Lo ya devengado no se toca.')
 
     @api.model
     def _commission_beneficiary_domain(self):

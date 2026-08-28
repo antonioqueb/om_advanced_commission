@@ -150,7 +150,8 @@ class SaleOrder(models.Model):
         res = super().create(vals_list)
         for so in res:
             upd = {}
-            if not so.seller1_id and so.user_id and so.user_id.partner_id:
+            if not so.seller1_id and so.user_id and so.user_id.partner_id \
+                    and not so.user_id.partner_id.commission_excluded:
                 upd['seller1_id'] = so.user_id.partner_id.id
             # Unificación con sale_order_second_salesperson (user_id_2): el
             # co-vendedor de la primera pantalla es el Vendedor 2 por defecto.
@@ -171,7 +172,8 @@ class SaleOrder(models.Model):
 
     @api.onchange('user_id')
     def _onchange_user_id_seller(self):
-        if self.user_id and self.user_id.partner_id and not self.seller1_id:
+        if self.user_id and self.user_id.partner_id and not self.seller1_id \
+                and not self.user_id.partner_id.commission_excluded:
             self.seller1_id = self.user_id.partner_id
 
     def write(self, vals):
@@ -340,6 +342,14 @@ class SaleOrder(models.Model):
                   'seller1_percent', 'seller2_percent', 'seller3_percent')
     def _onchange_sellers(self):
         self._sync_seller_rules()
+        excluded = [p.display_name for p in (self.seller1_id, self.seller2_id, self.seller3_id)
+                    if p and p.commission_excluded]
+        if excluded:
+            return {'warning': {
+                'title': 'Sin comisión',
+                'message': '%s está marcado como excluido de comisiones: puede figurar como vendedor, '
+                           'pero no generará comisión.' % ', '.join(excluded),
+            }}
         total = (self.seller1_percent or 0) + (self.seller2_percent or 0) + (self.seller3_percent or 0)
         allowed = self.commission_allowed_seller_percent or self._commission_seller_max()
         if total > allowed + 1e-6:
@@ -425,7 +435,11 @@ class SaleOrder(models.Model):
 
         result = {}
         external_total = 0.0
-        rules = self.commission_rule_ids
+        # Excluidos de comisiones (p. ej. dueños que venden): sus reglas no
+        # producen movimientos nuevos ni participan en la utilidad bruta.
+        # Como no entran en `result`, el refresh tampoco toca lo que ya
+        # tuvieran devengado (la exclusión aplica solo hacia adelante).
+        rules = self.commission_rule_ids.filtered(lambda r: not r.partner_id.commission_excluded)
         for rule in rules.filtered(lambda r: r.role_type != 'internal'):
             amt = rule._commission_amount(bases, fixed_in(rule), 0.0) * ext_factor
             result[rule] = amt

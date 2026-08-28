@@ -1,0 +1,21 @@
+<odoo>
+    <record id="view_users_form_commission" model="ir.ui.view">
+        <field name="name">res.users.form.commission</field>
+        <field name="model">res.users</field>
+        <field name="inherit_id" ref="base.view_users_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//notebook[not(ancestor::field)]" position="inside">
+                <page string="Comisiones" name="commissions"
+                      groups="om_advanced_commission.group_commission_manager">
+                    <group>
+                        <field name="commission_excluded" widget="boolean_toggle"/>
+                    </group>
+                    <div class="text-muted">
+                        Marcado: este usuario puede vender y figurar como vendedor, pero <strong>nunca</strong> generará
+                        comisiones nuevas. Lo ya devengado antes de marcarlo no se modifica.
+                    </div>
+                </page>
+            </xpath>
+        </field>
+    </record>
+</odoo>
