@@ -106,6 +106,14 @@ class SaleOrder(models.Model):
     @api.constrains('seller1_id', 'seller2_id', 'seller3_id')
     def _check_sellers(self):
         for so in self:
+            chosen = [p for p in (so.seller1_id, so.seller2_id, so.seller3_id) if p]
+            if len(chosen) != len({c.id for c in chosen}):
+                raise ValidationError("Un vendedor no puede ocupar dos posiciones en la misma orden.")
+            dup = so.commission_rule_ids.filtered(lambda r: r.role_type != 'internal' and r.partner_id in chosen)
+            if dup:
+                raise ValidationError(
+                    "%s ya tiene una comisión en 'Otras comisiones'; no puede ir también como vendedor."
+                    % ', '.join(dup.mapped('partner_id.display_name')))
             bad = [p.display_name for p in (so.seller1_id, so.seller2_id, so.seller3_id)
                    if p and not self._commission_is_sales_user_partner(p)]
             if bad:

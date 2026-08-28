@@ -1,5 +1,5 @@
 from odoo import models, fields, api
-from odoo.exceptions import UserError
+from odoo.exceptions import UserError, ValidationError
 
 
 class SaleCommissionRule(models.Model):
@@ -31,7 +31,7 @@ class SaleCommissionRule(models.Model):
     # sincronizar EN SITIO (sin destruir/recrear) cuando cambian los campos
     # seller*_id / seller*_percent de la orden, conservando id, autorización
     # e historial.
-    seller_slot = fields.Integer(string='Posición Vendedor', readonly=True)
+    seller_slot = fields.Integer(string='Posición Vendedor', readonly=True, default=0)
 
     # Estimado si se cobrara el 100% de la orden, YA con los factores de
     # retención (lo que realmente se pagaría hoy). raw = sin retención.
@@ -43,6 +43,37 @@ class SaleCommissionRule(models.Model):
 
     requires_authorization = fields.Boolean(string='Requiere Autorización', default=False, readonly=True)
     authorization_id = fields.Many2one('commission.authorization', string='Autorización', readonly=True)
+
+    # ------------------------------------------------------------------
+    # Candado "Otras comisiones": solo EXTERNOS y nunca duplicar a un vendedor
+    # ------------------------------------------------------------------
+    @api.model
+    def _partner_is_internal_user(self, partner):
+        return bool(partner and partner.sudo().user_ids.filtered(lambda u: u.active and not u.share))
+
+    @api.constrains('partner_id', 'role_type', 'sale_order_id')
+    def _check_external_rule(self):
+        for rule in self:
+            so = rule.sale_order_id
+            # 1) El rol Vendedor solo nace de Vendedor 1/2/3 (sync interno).
+            if rule.role_type == 'internal' and not self.env.context.get('commission_sync') \
+                    and rule.seller_slot == 0:
+                raise ValidationError(
+                    "Los vendedores se capturan arriba, en Vendedor 1 / 2 / 3. "
+                    "En 'Otras comisiones' solo van embajadores, constructoras o referidores.")
+            if rule.role_type == 'internal':
+                continue
+            # 2) Un usuario interno de Odoo no puede ir como comisionista externo.
+            if self._partner_is_internal_user(rule.partner_id):
+                raise ValidationError(
+                    "%s es usuario interno de Odoo: no puede registrarse en 'Otras comisiones'. "
+                    "Si debe comisionar, va como Vendedor 1 / 2 / 3 (tope del %s%%)."
+                    % (rule.partner_id.display_name, so._commission_seller_max() if so else 2.5))
+            # 3) Nadie arriba y abajo a la vez.
+            if so and rule.partner_id in (so.seller1_id | so.seller2_id | so.seller3_id):
+                raise ValidationError(
+                    "%s ya está como vendedor en esta orden; no puede llevar además una comisión externa."
+                    % rule.partner_id.display_name)
 
     # ------------------------------------------------------------------
     # Cálculo

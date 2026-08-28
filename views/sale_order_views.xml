@@ -94,12 +94,16 @@
                         </list>
                     </field>
 
-                    <separator string="Otras Comisiones (embajador, constructora, referidor)"/>
+                    <separator string="Otras Comisiones (solo externos: embajador, constructora, referidor)"/>
                     <field name="commission_rule_ids" domain="[('role_type', '!=', 'internal')]"
                            context="{'default_role_type': 'architect'}">
                         <list string="Reglas de Comisión" editable="bottom">
                             <field name="role_type"/>
-                            <field name="partner_id"/>
+                            <!-- Solo contactos EXTERNOS: quien tenga usuario interno de Odoo
+                                 (vendedor) no aparece; el servidor lo valida además. -->
+                            <field name="partner_id"
+                                   domain="['!', ('user_ids.share', '=', False)]"
+                                   options="{'no_quick_create': True}"/>
                             <field name="calculation_base"/>
                             <field name="percent" invisible="calculation_base == 'manual'"/>
                             <field name="fixed_amount" invisible="calculation_base != 'manual'"/>
