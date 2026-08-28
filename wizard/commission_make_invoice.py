@@ -14,7 +14,8 @@ class CommissionMakeInvoice(models.TransientModel):
         Move = self.env['commission.move']
         Settlement = self.env['commission.settlement']
 
-        domain = [('state', '=', 'draft'), ('date', '<=', self.date_to)]
+        domain = [('state', '=', 'draft'), ('date', '<=', self.date_to),
+                  ('partner_id.commission_excluded', '=', False)]
         if self.partner_ids:
             domain.append(('partner_id', 'in', self.partner_ids.ids))
 

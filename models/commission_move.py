@@ -367,6 +367,7 @@ class CommissionMove(models.Model):
         base_domain = [
             ('state', '!=', 'cancel'),
             ('company_id', '=', self.env.company.id),
+            ('partner_id.commission_excluded', '=', False),   # nunca figuran
         ] + self._commission_period_domain(first, last, basis)
         domain = list(base_domain)
         if not is_auth:
@@ -564,7 +565,8 @@ class CommissionMove(models.Model):
         for (ty, tm) in reversed(months):
             f = date(ty, tm, 1)
             l = date(ty, tm, monthrange(ty, tm)[1])
-            dom = [('state', '!=', 'cancel'), ('company_id', '=', company.id)]
+            dom = [('state', '!=', 'cancel'), ('company_id', '=', company.id),
+                   ('partner_id.commission_excluded', '=', False)]
             dom += self._commission_period_domain(f, l, basis)
             if not is_auth:
                 dom.append(('partner_id.user_ids', 'in', [user.id]))

@@ -33,6 +33,7 @@ class ReportCommissionPDF(models.AbstractModel):
         domain = [
             ('state', '!=', 'cancel'),
             ('company_id', '=', self.env.company.id),
+            ('partner_id.commission_excluded', '=', False),
         ] + Move._commission_period_domain(date_from_d, date_to_d, basis)
 
         # CANDADO DE PROPIEDAD: quien no es autorizador SOLO imprime sus
