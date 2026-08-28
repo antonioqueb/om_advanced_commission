@@ -28,6 +28,15 @@ export class CommissionDashboard extends Component {
             showDetail: false,
             showIncidents: false,
             showExternalRole: {},
+            // tabla de personas
+            sortKey: "total",
+            sortDir: -1,
+            search: "",
+            expanded: {},
+            // detalle
+            detailState: "all",
+            detailSearch: "",
+            detailLimit: 80,
         });
         onWillStart(() => this.load());
     }
@@ -84,6 +93,104 @@ export class CommissionDashboard extends Component {
     toggleIncidents() { this.state.showIncidents = !this.state.showIncidents; }
     toggleRole(role) { this.state.showExternalRole[role] = !this.state.showExternalRole[role]; }
     isRoleOpen(role) { return !!this.state.showExternalRole[role]; }
+
+    // ── Tabla de personas: orden, búsqueda, expansión ──
+    sortBy(key) {
+        if (this.state.sortKey === key) {
+            this.state.sortDir = -this.state.sortDir;
+        } else {
+            this.state.sortKey = key;
+            this.state.sortDir = key === "name" || key === "role_label" ? 1 : -1;
+        }
+    }
+    sortIcon(key) {
+        if (this.state.sortKey !== key) return "";
+        return this.state.sortDir < 0 ? "▼" : "▲";
+    }
+    onSearch(ev) { this.state.search = ev.target.value || ""; }
+    toggleExpand(id) { this.state.expanded[id] = !this.state.expanded[id]; }
+    isExpanded(id) { return !!this.state.expanded[id]; }
+    get people() {
+        const list = (this.state.data.people || this.state.data.sellers || []).slice();
+        const q = this.state.search.trim().toLowerCase();
+        const filtered = q ? list.filter((p) => (p.name || "").toLowerCase().includes(q) || (p.user_login || "").toLowerCase().includes(q)) : list;
+        const k = this.state.sortKey, d = this.state.sortDir;
+        filtered.sort((a, b) => {
+            const va = a[k], vb = b[k];
+            if (typeof va === "string" || typeof vb === "string") return String(va || "").localeCompare(String(vb || "")) * d;
+            return ((va || 0) - (vb || 0)) * d;
+        });
+        return filtered;
+    }
+    get peopleAll() { return this.state.data.people || this.state.data.sellers || []; }
+    get stateColumns() {
+        const all = this.peopleAll;
+        const has = (key) => all.some((p) => Math.abs(p[key] || 0) > 0.005);
+        return { draft: has("draft"), settled: has("settled"), invoiced: has("invoiced"), retained: has("retained") };
+    }
+    get peopleTotals() {
+        const t = { total: 0, base: 0, orders: 0, count: 0, draft: 0, settled: 0, invoiced: 0, retained: 0 };
+        for (const p of this.people) { for (const k of Object.keys(t)) t[k] += p[k] || 0; }
+        t.pct = t.base ? (t.total / t.base) * 100 : 0;
+        t.avg_order = t.orders ? t.total / t.orders : 0;
+        return t;
+    }
+    get peopleMax() { return Math.max(...this.peopleAll.map((p) => Math.abs(p.total)), 1); }
+    personBar(p) { return "width:" + Math.max((Math.abs(p.total) / this.peopleMax) * 100, 0) + "%"; }
+    personShare(p) {
+        const tot = this.peopleAll.reduce((a, x) => a + (x.total || 0), 0);
+        return tot ? ((p.total / tot) * 100).toFixed(1) + "%" : "0.0%";
+    }
+    statusStack(p) {
+        const tot = Math.max((p.draft || 0) + (p.settled || 0) + (p.invoiced || 0), 0.0001);
+        return { draft: ((p.draft || 0) / tot) * 100, settled: ((p.settled || 0) / tot) * 100, invoiced: ((p.invoiced || 0) / tot) * 100 };
+    }
+    personRows(p) {
+        return this.state.data.rows.filter((r) => r.partner_id === p.id).sort((a, b) => Math.abs(b.amount) - Math.abs(a.amount)).slice(0, 8);
+    }
+    fmtPct(v) { return (v || 0).toFixed(2) + "%"; }
+
+    // ── Variación vs mes anterior (misma base) ──
+    get prevDelta() {
+        const t = this.state.data.trend || [];
+        const idx = t.findIndex((x) => x.current);
+        if (idx <= 0) return null;
+        const cur = t[idx].total, prev = t[idx - 1].total;
+        if (!prev) return cur ? { pct: 100, up: true, prevLabel: t[idx - 1].label } : null;
+        const pct = ((cur - prev) / Math.abs(prev)) * 100;
+        return { pct: Math.abs(pct).toFixed(1), up: pct >= 0, prevLabel: t[idx - 1].label };
+    }
+
+    // ── Detalle: filtros ──
+    setDetailState(st) { this.state.detailState = st; this.state.detailLimit = 80; }
+    onDetailSearch(ev) { this.state.detailSearch = ev.target.value || ""; this.state.detailLimit = 80; }
+    get detailRowsAll() {
+        const q = this.state.detailSearch.trim().toLowerCase();
+        return this.state.data.rows.filter((r) => {
+            if (this.state.detailState !== "all" && r.state !== this.state.detailState) return false;
+            if (!q) return true;
+            return [r.order, r.customer, r.partner, r.invoice, r.name].some((v) => (v || "").toLowerCase().includes(q));
+        });
+    }
+    get detailRows() { return this.detailRowsAll.slice(0, this.state.detailLimit); }
+    showMoreDetail() { this.state.detailLimit += 100; }
+    detailCount(st) { return this.state.data.rows.filter((r) => st === "all" || r.state === st).length; }
+
+    // ── Exportar CSV (tabla de personas) ──
+    exportCsv() {
+        const sym = "";
+        const head = ["Nombre", "Tipo", "Órdenes", "Movimientos", "Base cobrada", "Comisión", "% efectivo", "Promedio por orden", "Pendiente", "En liquidación", "Pagado", "Retenido"];
+        const lines = [head.join(",")];
+        for (const p of this.people) {
+            lines.push([`"${(p.name || "").replace(/"/g, '""')}"`, p.role_label || "", p.orders, p.count, p.base, p.total, p.pct, p.avg_order, p.draft, p.settled, p.invoiced, p.retained].join(","));
+        }
+        const blob = new Blob(["\ufeff" + lines.join("\n")], { type: "text/csv;charset=utf-8" });
+        const a = document.createElement("a");
+        a.href = URL.createObjectURL(blob);
+        a.download = `comisiones_${this.isExternals ? "externos" : "vendedores"}_${this.state.month}.csv`;
+        document.body.appendChild(a); a.click(); document.body.removeChild(a);
+        setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+    }
 
     // ── Formato ──
     fmt(value) {

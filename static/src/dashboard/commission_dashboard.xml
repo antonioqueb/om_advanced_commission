@@ -63,7 +63,11 @@
                         <t t-else="">Tu comisión de</t>
                         <strong t-esc="state.data.month_label"/>
                     </span>
-                    <div class="om-comm-hero-value"><span class="om-comm-hero-cur" t-esc="state.data.currency_symbol"/><t t-esc="fmt(state.data.kpis.total)"/></div>
+                    <div class="om-comm-hero-value"><span class="om-comm-hero-cur" t-esc="state.data.currency_symbol"/><t t-esc="fmt(state.data.kpis.total)"/>
+                        <span t-if="prevDelta" t-att-class="'om-comm-delta ' + (prevDelta.up ? 'up' : 'down')" t-att-title="'Comparado con ' + prevDelta.prevLabel">
+                            <t t-esc="prevDelta.up ? '▲' : '▼'"/> <t t-esc="prevDelta.pct"/>% vs <t t-esc="prevDelta.prevLabel"/>
+                        </span>
+                    </div>
                     <div class="om-comm-hero-sub">
                         <span><strong t-esc="state.data.kpis.count"/> movimiento(s)</span><span class="om-comm-dot-sep"/>
                         <span><strong t-esc="state.data.kpis.orders"/> orden(es)</span><span class="om-comm-dot-sep"/>
@@ -128,103 +132,138 @@
                     <div class="om-comm-kpi-ic"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg></div>
                     <div class="om-comm-kpi-txt"><span class="om-comm-kpi-label">Pagado</span><span class="om-comm-kpi-value"><t t-esc="state.data.currency_symbol"/><t t-esc="fmt(state.data.kpis.invoiced)"/></span><span class="om-comm-kpi-sub">liquidado</span></div>
                 </div>
+                <div class="om-comm-kpi om-comm-kpi-base">
+                    <div class="om-comm-kpi-ic"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="6" width="20" height="12" rx="2"/><circle cx="12" cy="12" r="3"/><line x1="6" y1="12" x2="6.01" y2="12"/><line x1="18" y1="12" x2="18.01" y2="12"/></svg></div>
+                    <div class="om-comm-kpi-txt"><span class="om-comm-kpi-label">Base cobrada</span><span class="om-comm-kpi-value"><t t-esc="state.data.currency_symbol"/><t t-esc="fmt(state.data.kpis.base)"/></span><span class="om-comm-kpi-sub"><t t-esc="state.data.kpis.orders"/> orden(es) · <t t-esc="state.data.kpis.count"/> mov.</span></div>
+                </div>
                 <div class="om-comm-kpi om-comm-kpi-retained" t-if="state.data.kpis.retained">
                     <div class="om-comm-kpi-ic"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></div>
                     <div class="om-comm-kpi-txt"><span class="om-comm-kpi-label">Retenido</span><span class="om-comm-kpi-value"><t t-esc="state.data.currency_symbol"/><t t-esc="fmt(state.data.kpis.retained)"/></span><span class="om-comm-kpi-sub">se libera al autorizar</span></div>
                 </div>
             </div>
 
-            <!-- ══ VENDEDORES (administradores) ══ -->
-            <div class="om-comm-card om-comm-sellers" t-if="state.data.is_authorizer and !isExternals">
+            <!-- ══ PERSONAS: vendedores (Panel) o externos (Comisionistas Externos) ══ -->
+            <div class="om-comm-card om-comm-sellers" t-if="state.data.is_authorizer">
                 <div class="om-comm-card-head">
                     <div>
-                        <h2>Vendedores</h2>
-                        <span class="om-comm-muted"><t t-esc="state.data.sellers.length"/> vendedor(es) comisionando en <t t-esc="state.data.month_label"/> · total <strong><t t-esc="state.data.currency_symbol"/><t t-esc="fmt(state.data.totals.sellers)"/></strong></span>
+                        <h2><t t-esc="isExternals ? 'Comisionistas externos' : 'Vendedores'"/></h2>
+                        <span class="om-comm-muted">
+                            <t t-esc="peopleAll.length"/> <t t-esc="isExternals ? 'comisionista(s)' : 'vendedor(es)'"/> comisionando en <t t-esc="state.data.month_label"/>
+                            · total <strong><t t-esc="state.data.currency_symbol"/><t t-esc="fmt(isExternals ? state.data.totals.externals : state.data.totals.sellers)"/></strong>
+                        </span>
                     </div>
                     <div class="om-comm-card-actions">
+                        <input type="search" class="om-comm-search" placeholder="Buscar…" t-att-value="state.search" t-on-input="onSearch"/>
+                        <button class="om-comm-btn-light" t-on-click="exportCsv" title="Exportar la tabla a CSV">CSV</button>
                         <button class="om-comm-btn-light" t-on-click="openStatement">Estado de cuenta</button>
                     </div>
                 </div>
-                <div class="om-comm-table-scroll">
+
+                <!-- Resumen por tipo (solo externos) -->
+                <div class="om-comm-rolechips" t-if="isExternals and state.data.role_summary.length">
+                    <t t-foreach="state.data.role_summary" t-as="rs" t-key="rs.role">
+                        <div class="om-comm-rolechip">
+                            <span class="om-comm-rolechip-name" t-esc="rs.label"/>
+                            <span class="om-comm-rolechip-total"><t t-esc="state.data.currency_symbol"/><t t-esc="fmt(rs.total)"/></span>
+                            <span class="om-comm-muted"><t t-esc="rs.people"/> persona(s) · <t t-esc="rs.orders"/> orden(es)</span>
+                        </div>
+                    </t>
+                </div>
+
+                <div class="om-comm-table-scroll" t-if="people.length">
                     <table class="om-comm-sellers-table">
                         <thead>
                             <tr>
                                 <th class="om-comm-th-rank">#</th>
-                                <th>Vendedor</th>
-                                <th class="om-comm-num">Órdenes</th>
-                                <th class="om-comm-num">Base cobrada</th>
-                                <th class="om-comm-num om-comm-th-main">Comisión</th>
+                                <th class="om-comm-sortable" t-on-click="() => this.sortBy('name')">Nombre <i t-esc="sortIcon('name')"/></th>
+                                <th t-if="isExternals" class="om-comm-sortable" t-on-click="() => this.sortBy('role_label')">Tipo <i t-esc="sortIcon('role_label')"/></th>
+                                <th class="om-comm-num om-comm-sortable" t-on-click="() => this.sortBy('orders')">Órdenes <i t-esc="sortIcon('orders')"/></th>
+                                <th class="om-comm-num om-comm-sortable" t-on-click="() => this.sortBy('base')">Base cobrada <i t-esc="sortIcon('base')"/></th>
+                                <th class="om-comm-num om-comm-sortable om-comm-th-main" t-on-click="() => this.sortBy('total')">Comisión <i t-esc="sortIcon('total')"/></th>
+                                <th class="om-comm-num om-comm-sortable" t-on-click="() => this.sortBy('pct')" title="Comisión ÷ base cobrada">% efectivo <i t-esc="sortIcon('pct')"/></th>
+                                <th class="om-comm-num om-comm-sortable" t-on-click="() => this.sortBy('avg_order')">Prom. / orden <i t-esc="sortIcon('avg_order')"/></th>
                                 <th class="om-comm-th-bar">Participación</th>
-                                <th class="om-comm-num">Pendiente</th>
-                                <th class="om-comm-num">En liquidación</th>
-                                <th class="om-comm-num">Pagado</th>
-                                <th class="om-comm-num">Retenido</th>
+                                <th class="om-comm-th-status">Estado</th>
+                                <th t-if="stateColumns.settled" class="om-comm-num">En liquidación</th>
+                                <th t-if="stateColumns.invoiced" class="om-comm-num">Pagado</th>
+                                <th t-if="stateColumns.retained" class="om-comm-num">Retenido</th>
                             </tr>
                         </thead>
                         <tbody>
-                            <tr t-foreach="state.data.sellers" t-as="s" t-key="s.id"
-                                t-att-class="(state.partnerId === s.id ? 'is-selected ' : '') + (s.count ? '' : 'is-empty ') + (s.inactive ? 'is-inactive' : '')"
-                                t-on-click="() => this.selectPartner(state.partnerId === s.id ? false : s.id)" title="Ver el detalle de este vendedor">
-                                <td class="om-comm-th-rank"><span t-att-class="'om-comm-rank ' + (s_index === 0 and s.total > 0 ? 'top' : '')" t-esc="s_index + 1"/></td>
-                                <td class="om-comm-seller-name">
-                                    <strong t-esc="s.name"/>
-                                    <span class="om-comm-muted" t-if="s.user_login"> · <t t-esc="s.user_login"/></span>
-                                    <span class="om-comm-tag om-comm-tag-muted" t-if="s.inactive">sin usuario de ventas</span>
-                                </td>
-                                <td class="om-comm-num" t-esc="s.orders"/>
-                                <td class="om-comm-num om-comm-muted"><t t-esc="state.data.currency_symbol"/><t t-esc="fmt(s.base)"/></td>
-                                <td class="om-comm-num om-comm-strong"><t t-esc="state.data.currency_symbol"/><t t-esc="fmt(s.total)"/></td>
-                                <td class="om-comm-th-bar">
-                                    <div class="om-comm-share"><div class="om-comm-share-track"><div class="om-comm-share-bar" t-att-style="sellerBar(s)"/></div><span t-esc="sellerShare(s)"/></div>
-                                </td>
-                                <td class="om-comm-num om-comm-amber"><t t-if="s.draft"><t t-esc="state.data.currency_symbol"/><t t-esc="fmt(s.draft)"/></t><t t-else="">—</t></td>
-                                <td class="om-comm-num om-comm-blue"><t t-if="s.settled"><t t-esc="state.data.currency_symbol"/><t t-esc="fmt(s.settled)"/></t><t t-else="">—</t></td>
-                                <td class="om-comm-num om-comm-green"><t t-if="s.invoiced"><t t-esc="state.data.currency_symbol"/><t t-esc="fmt(s.invoiced)"/></t><t t-else="">—</t></td>
-                                <td class="om-comm-num om-comm-orange"><t t-if="s.retained"><t t-esc="state.data.currency_symbol"/><t t-esc="fmt(s.retained)"/></t><t t-else="">—</t></td>
-                            </tr>
+                            <t t-foreach="people" t-as="s" t-key="s.id">
+                                <tr t-att-class="(isExpanded(s.id) ? 'is-open ' : '') + (s.inactive ? 'is-inactive' : '')"
+                                    t-on-click="() => this.toggleExpand(s.id)" title="Ver las órdenes de esta persona">
+                                    <td class="om-comm-th-rank"><span t-att-class="'om-comm-rank ' + (s_index === 0 and state.sortKey === 'total' and state.sortDir &lt; 0 ? 'top' : '')" t-esc="s_index + 1"/></td>
+                                    <td class="om-comm-seller-name">
+                                        <strong t-esc="s.name"/>
+                                        <span class="om-comm-muted" t-if="s.user_login"> · <t t-esc="s.user_login"/></span>
+                                        <span class="om-comm-tag om-comm-tag-muted" t-if="s.inactive">sin usuario de ventas</span>
+                                    </td>
+                                    <td t-if="isExternals"><span class="om-comm-tag om-comm-tag-role" t-esc="s.role_label"/></td>
+                                    <td class="om-comm-num" t-esc="s.orders"/>
+                                    <td class="om-comm-num om-comm-muted"><t t-esc="state.data.currency_symbol"/><t t-esc="fmt(s.base)"/></td>
+                                    <td class="om-comm-num om-comm-strong"><t t-esc="state.data.currency_symbol"/><t t-esc="fmt(s.total)"/></td>
+                                    <td class="om-comm-num" t-esc="fmtPct(s.pct)"/>
+                                    <td class="om-comm-num om-comm-muted"><t t-esc="state.data.currency_symbol"/><t t-esc="fmt(s.avg_order)"/></td>
+                                    <td class="om-comm-th-bar"><div class="om-comm-share"><div class="om-comm-share-track"><div t-att-class="'om-comm-share-bar ' + (isExternals ? 'ext' : '')" t-att-style="personBar(s)"/></div><span t-esc="personShare(s)"/></div></td>
+                                    <td class="om-comm-th-status">
+                                        <div class="om-comm-stack" t-att-title="'Pendiente ' + fmt(s.draft) + ' · En liquidación ' + fmt(s.settled) + ' · Pagado ' + fmt(s.invoiced)">
+                                            <div class="om-comm-stack-paid" t-att-style="barStyle(statusStack(s).invoiced)"/>
+                                            <div class="om-comm-stack-settled" t-att-style="barStyle(statusStack(s).settled)"/>
+                                            <div class="om-comm-stack-draft" t-att-style="barStyle(statusStack(s).draft)"/>
+                                        </div>
+                                    </td>
+                                    <td t-if="stateColumns.settled" class="om-comm-num om-comm-blue"><t t-if="s.settled"><t t-esc="state.data.currency_symbol"/><t t-esc="fmt(s.settled)"/></t><t t-else="">—</t></td>
+                                    <td t-if="stateColumns.invoiced" class="om-comm-num om-comm-green"><t t-if="s.invoiced"><t t-esc="state.data.currency_symbol"/><t t-esc="fmt(s.invoiced)"/></t><t t-else="">—</t></td>
+                                    <td t-if="stateColumns.retained" class="om-comm-num om-comm-orange"><t t-if="s.retained"><t t-esc="state.data.currency_symbol"/><t t-esc="fmt(s.retained)"/></t><t t-else="">—</t></td>
+                                </tr>
+                                <tr t-if="isExpanded(s.id)" class="om-comm-expand">
+                                    <td t-att-colspan="isExternals ? 13 : 12">
+                                        <div class="om-comm-expand-body">
+                                            <div class="om-comm-expand-head">
+                                                <span><strong t-esc="s.name"/> · órdenes con mayor comisión en <t t-esc="state.data.month_label"/></span>
+                                                <button class="om-comm-btn-light" t-on-click.stop="() => this.selectPartner(s.id)">Ver todo su detalle</button>
+                                            </div>
+                                            <table class="om-comm-mini">
+                                                <thead><tr><th>Orden</th><th>Cliente</th><th>Factura</th><th>Cobro</th><th class="om-comm-num">Base</th><th class="om-comm-num">Comisión</th><th>Estado</th></tr></thead>
+                                                <tbody>
+                                                    <tr t-foreach="personRows(s)" t-as="r" t-key="r.id">
+                                                        <td><a t-if="r.order_id" href="#" class="om-comm-link" t-on-click.prevent.stop="() => this.openOrder(r)" t-esc="r.order"/><span t-else="" t-esc="r.name"/><span t-if="r.kind" class="om-comm-tag om-comm-tag-neg" t-esc="kindLabel(r.kind)"/></td>
+                                                        <td class="om-comm-ellipsis" t-esc="r.customer"/>
+                                                        <td class="om-comm-mono" t-esc="r.invoice"/>
+                                                        <td class="om-comm-muted" t-esc="r.payment_date"/>
+                                                        <td class="om-comm-num om-comm-muted"><t t-if="r.base"><t t-esc="state.data.currency_symbol"/><t t-esc="fmt(r.base)"/></t><t t-else="">—</t></td>
+                                                        <td class="om-comm-num om-comm-strong"><t t-esc="state.data.currency_symbol"/><t t-esc="fmt(r.amount)"/></td>
+                                                        <td><span t-att-class="'om-comm-badge ' + stateBadge(r.state).cls" t-esc="stateBadge(r.state).label"/><span t-if="r.retained" class="om-comm-badge om-comm-badge-retained">Retenido</span><span t-if="r.incident" class="om-comm-badge om-comm-badge-incident">Incidencia</span></td>
+                                                    </tr>
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    </td>
+                                </tr>
+                            </t>
                         </tbody>
+                        <tfoot>
+                            <tr>
+                                <td/><td><strong>Total</strong> <span class="om-comm-muted">(<t t-esc="people.length"/>)</span></td>
+                                <td t-if="isExternals"/>
+                                <td class="om-comm-num" t-esc="peopleTotals.orders"/>
+                                <td class="om-comm-num om-comm-muted"><t t-esc="state.data.currency_symbol"/><t t-esc="fmt(peopleTotals.base)"/></td>
+                                <td class="om-comm-num om-comm-strong"><t t-esc="state.data.currency_symbol"/><t t-esc="fmt(peopleTotals.total)"/></td>
+                                <td class="om-comm-num" t-esc="fmtPct(peopleTotals.pct)"/>
+                                <td class="om-comm-num om-comm-muted"><t t-esc="state.data.currency_symbol"/><t t-esc="fmt(peopleTotals.avg_order)"/></td>
+                                <td/><td/>
+                                <td t-if="stateColumns.settled" class="om-comm-num om-comm-blue"><t t-esc="state.data.currency_symbol"/><t t-esc="fmt(peopleTotals.settled)"/></td>
+                                <td t-if="stateColumns.invoiced" class="om-comm-num om-comm-green"><t t-esc="state.data.currency_symbol"/><t t-esc="fmt(peopleTotals.invoiced)"/></td>
+                                <td t-if="stateColumns.retained" class="om-comm-num om-comm-orange"><t t-esc="state.data.currency_symbol"/><t t-esc="fmt(peopleTotals.retained)"/></td>
+                            </tr>
+                        </tfoot>
                     </table>
                 </div>
-                <div class="om-comm-empty-inline" t-if="!state.data.sellers.length">Ningún vendedor comisiona en este periodo.</div>
-            </div>
-
-            <!-- ══ COMISIONISTAS EXTERNOS POR TIPO (administradores) ══ -->
-            <div class="om-comm-card om-comm-externals" t-if="state.data.is_authorizer and isExternals">
-                <div class="om-comm-card-head">
-                    <div>
-                        <h2>Comisionistas externos</h2>
-                        <span class="om-comm-muted">Embajadores, constructoras y referidores · total <strong><t t-esc="state.data.currency_symbol"/><t t-esc="fmt(state.data.totals.externals)"/></strong></span>
-                    </div>
+                <div class="om-comm-empty-inline" t-if="!people.length">
+                    <t t-if="state.search">Nadie coincide con "<t t-esc="state.search"/>".</t>
+                    <t t-else=""><t t-esc="isExternals ? 'Sin comisiones externas' : 'Ningún vendedor comisiona'"/> en este periodo.</t>
                 </div>
-                <div class="om-comm-roles" t-if="state.data.externals.length">
-                    <t t-foreach="state.data.externals" t-as="role" t-key="role.role">
-                        <div class="om-comm-role">
-                            <div class="om-comm-role-head" t-on-click="() => this.toggleRole(role.role)">
-                                <div>
-                                    <span class="om-comm-role-name" t-esc="role.label"/>
-                                    <span class="om-comm-muted"><t t-esc="role.members.length"/> persona(s) · <t t-esc="role.count"/> mov.</span>
-                                </div>
-                                <div class="om-comm-role-total"><t t-esc="state.data.currency_symbol"/><t t-esc="fmt(role.total)"/></div>
-                                <span class="om-comm-role-chevron" t-esc="isRoleOpen(role.role) ? '▴' : '▾'"/>
-                            </div>
-                            <div class="om-comm-role-states">
-                                <span class="om-comm-amber">Pend. <t t-esc="state.data.currency_symbol"/><t t-esc="fmt(role.draft)"/></span>
-                                <span class="om-comm-blue">Liq. <t t-esc="state.data.currency_symbol"/><t t-esc="fmt(role.settled)"/></span>
-                                <span class="om-comm-green">Pag. <t t-esc="state.data.currency_symbol"/><t t-esc="fmt(role.invoiced)"/></span>
-                            </div>
-                            <div class="om-comm-role-members" t-if="isRoleOpen(role.role)">
-                                <t t-foreach="role.members" t-as="m" t-key="m.id">
-                                    <div class="om-comm-member" t-att-class="{ 'is-selected': state.partnerId === m.id }" t-on-click="() => this.selectPartner(state.partnerId === m.id ? false : m.id)">
-                                        <div class="om-comm-member-top"><span t-esc="m.name"/><strong><t t-esc="state.data.currency_symbol"/><t t-esc="fmt(m.total)"/></strong></div>
-                                        <div class="om-comm-share-track"><div class="om-comm-share-bar ext" t-att-style="memberBar(m, role)"/></div>
-                                        <div class="om-comm-member-sub"><t t-esc="m.orders"/> orden(es) · <t t-esc="m.count"/> mov.</div>
-                                    </div>
-                                </t>
-                            </div>
-                        </div>
-                    </t>
-                </div>
-                <div class="om-comm-empty-inline" t-else="">Sin comisiones externas en este periodo.</div>
             </div>
 
             <!-- ══ INCIDENCIAS (administradores, tras los paneles) ══ -->
@@ -263,6 +302,15 @@
                     <span class="om-comm-role-chevron" t-esc="state.showDetail ? '▴' : '▾'"/>
                 </div>
                 <t t-if="state.showDetail">
+                    <div class="om-comm-detail-tools" t-if="state.data.rows.length">
+                        <div class="om-comm-chips">
+                            <button t-att-class="'om-comm-chip ' + (state.detailState === 'all' ? 'active' : '')" t-on-click="() => this.setDetailState('all')">Todos <span t-esc="detailCount('all')"/></button>
+                            <button t-att-class="'om-comm-chip ' + (state.detailState === 'draft' ? 'active' : '')" t-on-click="() => this.setDetailState('draft')">Pendientes <span t-esc="detailCount('draft')"/></button>
+                            <button t-att-class="'om-comm-chip ' + (state.detailState === 'settled' ? 'active' : '')" t-on-click="() => this.setDetailState('settled')">En liquidación <span t-esc="detailCount('settled')"/></button>
+                            <button t-att-class="'om-comm-chip ' + (state.detailState === 'invoiced' ? 'active' : '')" t-on-click="() => this.setDetailState('invoiced')">Pagados <span t-esc="detailCount('invoiced')"/></button>
+                        </div>
+                        <input type="search" class="om-comm-search" placeholder="Orden, cliente, factura…" t-att-value="state.detailSearch" t-on-input="onDetailSearch"/>
+                    </div>
                     <div class="om-comm-table-scroll" t-if="state.data.rows.length">
                         <table class="om-comm-table">
                             <thead>
@@ -273,7 +321,7 @@
                                 </tr>
                             </thead>
                             <tbody>
-                                <tr t-foreach="state.data.rows" t-as="row" t-key="row.id" t-att-class="row.is_refund ? 'om-comm-refund' : ''">
+                                <tr t-foreach="detailRows" t-as="row" t-key="row.id" t-att-class="row.is_refund ? 'om-comm-refund' : ''">
                                     <td class="om-comm-muted" t-esc="row.order_date"/>
                                     <td>
                                         <a t-if="row.order_id" href="#" class="om-comm-link" t-on-click.prevent="() => this.openOrder(row)" t-esc="row.order"/>
@@ -296,6 +344,10 @@
                             </tbody>
                         </table>
                     </div>
+                    <div class="om-comm-more" t-if="detailRowsAll.length > detailRows.length">
+                        <button class="om-comm-btn-light" t-on-click="showMoreDetail">Mostrar más (<t t-esc="detailRowsAll.length - detailRows.length"/> restantes)</button>
+                    </div>
+                    <div class="om-comm-empty-inline" t-if="state.data.rows.length and !detailRowsAll.length">Nada coincide con el filtro.</div>
                     <div t-if="!state.data.rows.length" class="om-comm-empty">
                         <h3>Sin comisiones en <t t-esc="state.data.month_label"/></h3>
                         <p>Aparecen en cuanto se concilia un cobro. Prueba otro mes o cambia a <strong>Fecha de cobro</strong>.</p>

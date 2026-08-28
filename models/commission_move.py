@@ -400,15 +400,31 @@ class CommissionMove(models.Model):
                 seller_partners = Partner
         seller_ids = set(seller_partners.ids)
 
-        def is_internal(m):
+        legacy_role = {}
+
+        def resolved_role(m):
+            """Rol del movimiento: snapshot; si es legado (sin rol), la regla
+            vigente de la orden para ese beneficiario; si no, vendedor si es
+            usuario de ventas."""
             if m.rule_role:
-                return m.rule_role == 'internal'
-            return m.partner_id.id in seller_ids
+                return m.rule_role
+            key = (m.sale_order_id.id, m.partner_id.id)
+            if key not in legacy_role:
+                role = False
+                if m.sale_order_id:
+                    rule = m.sale_order_id.sudo().commission_rule_ids.filtered(
+                        lambda r: r.partner_id == m.partner_id)[:1]
+                    role = rule.role_type if rule else False
+                if not role:
+                    role = 'internal' if m.partner_id.id in seller_ids else 'other'
+                legacy_role[key] = role
+            return legacy_role[key]
+
+        def is_internal(m):
+            return resolved_role(m) == 'internal'
 
         def role_key(m):
-            if is_internal(m):
-                return 'internal'
-            return m.rule_role or 'other'
+            return resolved_role(m)
 
         # PANELES SEPARADOS: el de vendedores solo trae movimientos internos y
         # el de externos solo externos (para administradores; el vendedor
@@ -439,9 +455,13 @@ class CommissionMove(models.Model):
                     bucket['base'] += to_company(m, m.base_amount_paid)
 
         def pack(bucket):
-            return {k: round(v, 2) for k, v in bucket.items() if k in
-                    ('total', 'draft', 'settled', 'invoiced', 'retained', 'base')} | {
-                'count': bucket['count'], 'orders': len(bucket['orders'])}
+            out = {k: round(v, 2) for k, v in bucket.items() if k in
+                   ('total', 'draft', 'settled', 'invoiced', 'retained', 'base')}
+            out['count'] = bucket['count']
+            out['orders'] = len(bucket['orders'])
+            out['pct'] = round(bucket['total'] / bucket['base'] * 100.0, 2) if bucket['base'] else 0.0
+            out['avg_order'] = round(bucket['total'] / len(bucket['orders']), 2) if bucket['orders'] else 0.0
+            return out
 
         # ── KPIs del filtro activo + filas de detalle ──
         kpis_b = new_bucket()
@@ -478,38 +498,36 @@ class CommissionMove(models.Model):
 
         # ── Secciones (solo administradores, sobre TODO el periodo) ──
         sellers, externals, incidents = [], [], {'count': 0, 'rows': []}
+        people, role_summary = [], []
         blocked_ids = set()
         totals = {'sellers': 0.0, 'externals': 0.0}
         if is_auth:
-            per_partner = {}
-            ext_roles = {}
+            per_person = {}     # pid -> (role, bucket)
+            per_role = {}
             for m in all_moves:
                 rk = role_key(m)
-                if rk == 'internal':
-                    feed(per_partner.setdefault(m.partner_id.id, new_bucket()), m)
-                else:
-                    role = ext_roles.setdefault(rk, {'partners': {}, 'bucket': new_bucket()})
-                    feed(role['bucket'], m)
-                    feed(role['partners'].setdefault(m.partner_id.id, new_bucket()), m)
-            # Solo vendedores que ESTÁN comisionando en el periodo: quien no
-            # tiene movimientos no aparece (pedido del cliente).
-            for pid, b in per_partner.items():
+                entry = per_person.setdefault(m.partner_id.id, {'role': rk, 'bucket': new_bucket()})
+                feed(entry['bucket'], m)
+                feed(per_role.setdefault(rk, new_bucket()), m)
+            # Solo quienes ESTÁN comisionando en el periodo (pedido del cliente).
+            for pid, entry in per_person.items():
+                b = entry['bucket']
                 if not b['count']:
                     continue
                 partner = Partner.browse(pid)
-                sellers.append({'id': pid, 'name': partner.display_name,
-                                'user_login': partner.user_ids[:1].login or '',
-                                'inactive': pid not in seller_ids, **pack(b)})
-            sellers.sort(key=lambda x: (-x['total'], x['name']))
-            totals['sellers'] = round(sum(x['total'] for x in sellers), 2)
-            for rk, role in sorted(ext_roles.items(), key=lambda kv: -kv[1]['bucket']['total']):
-                members = []
-                for pid, b in role['partners'].items():
-                    members.append({'id': pid, 'name': Partner.browse(pid).display_name, **pack(b)})
-                members.sort(key=lambda x: -x['total'])
-                externals.append({'role': rk, 'label': self.ROLE_LABELS.get(rk, 'Otros'),
-                                  'members': members, **pack(role['bucket'])})
-            totals['externals'] = round(sum(x['total'] for x in externals), 2)
+                rk = entry['role']
+                person = {'id': pid, 'name': partner.display_name,
+                          'user_login': partner.user_ids[:1].login or '',
+                          'role': rk, 'role_label': self.ROLE_SINGULAR.get(rk, 'Otro'),
+                          'inactive': rk == 'internal' and pid not in seller_ids, **pack(b)}
+                people.append(person)
+            people.sort(key=lambda x: (-x['total'], x['name']))
+            sellers = people  # compatibilidad: el panel activo ya viene filtrado por scope
+            for rk, b in sorted(per_role.items(), key=lambda kv: -kv[1]['total']):
+                role_summary.append({'role': rk, 'label': self.ROLE_LABELS.get(rk, 'Otros') if rk != 'internal' else 'Vendedores',
+                                     'people': len([p for p in people if p['role'] == rk]), **pack(b)})
+            key = 'sellers' if scope == 'sellers' else 'externals'
+            totals[key] = round(sum(x['total'] for x in people), 2)
 
             Incident = self.env['commission.incident']
             try:
@@ -581,6 +599,8 @@ class CommissionMove(models.Model):
             'totals': totals,
             'rows': rows,
             'sellers': sellers,
+            'people': people,
+            'role_summary': role_summary,
             'externals': externals,
             'selected_partner': selected,
             'incidents': incidents,

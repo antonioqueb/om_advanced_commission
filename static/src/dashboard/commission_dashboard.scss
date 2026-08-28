@@ -485,3 +485,52 @@ $omc-red: #dc2626;
     // Detalle plegable
     .om-comm-detail .om-comm-table-scroll { border-top: 1px solid $omc-line; }
 }
+
+// ─────────────────────────────────────────────────────────────
+//  v5.2: tabla de personas (orden/búsqueda/expansión), chips, delta
+// ─────────────────────────────────────────────────────────────
+.om-comm-dash {
+    .om-comm-hero-label { text-transform: none; strong { text-transform: capitalize; } }
+    .om-comm-delta {
+        display: inline-block; margin-left: 12px; vertical-align: middle; font-size: 0.78rem; font-weight: 700;
+        padding: 3px 9px; border-radius: 999px; background: rgba(255, 255, 255, 0.16); color: #fff;
+        &.up { background: rgba(110, 231, 183, 0.28); } &.down { background: rgba(252, 165, 165, 0.28); }
+    }
+    .om-comm-kpi-base .om-comm-kpi-ic { background: $omc-100; color: $omc-700; }
+    .om-comm-kpi-base .om-comm-kpi-value { color: $omc-ink; }
+
+    .om-comm-search {
+        border: 1px solid $omc-line; border-radius: 8px; padding: 5px 10px; font-size: 0.8rem; min-width: 180px;
+        &:focus { outline: none; border-color: $omc-500; box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.15); }
+    }
+    .om-comm-rolechips { display: flex; flex-wrap: wrap; gap: 10px; padding: 0 18px 12px; }
+    .om-comm-rolechip {
+        display: flex; flex-direction: column; gap: 2px; min-width: 180px;
+        padding: 10px 14px; border-radius: 12px; background: #fffbeb; border: 1px solid #fde68a;
+        .om-comm-rolechip-name { font-size: 0.72rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.05em; color: #92400e; }
+        .om-comm-rolechip-total { font-size: 1.05rem; font-weight: 800; color: $omc-ink; }
+    }
+    .om-comm-sellers-table {
+        th.om-comm-sortable { cursor: pointer; user-select: none; white-space: nowrap; &:hover { color: $omc-700; } i { font-style: normal; font-size: 0.6rem; margin-left: 2px; } }
+        .om-comm-th-status { width: 110px; }
+        tbody tr.is-open td { background: $omc-50; }
+        tfoot td { padding: 10px 14px; border-top: 2px solid $omc-line; background: #f8fafc; font-size: 0.84rem; }
+    }
+    .om-comm-stack { display: flex; height: 8px; border-radius: 999px; overflow: hidden; background: #eef2f7; min-width: 90px;
+        .om-comm-stack-paid { background: $omc-500; } .om-comm-stack-settled { background: #60a5fa; } .om-comm-stack-draft { background: #fbbf24; } }
+    .om-comm-expand td { padding: 0 14px 14px; background: $omc-50; cursor: default; }
+    .om-comm-expand-body { background: #fff; border: 1px solid $omc-100; border-radius: 12px; padding: 10px 12px; }
+    .om-comm-expand-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; font-size: 0.82rem; margin-bottom: 8px; }
+    .om-comm-mini { width: 100%; border-collapse: collapse; font-size: 0.8rem; white-space: nowrap;
+        th { text-align: left; font-size: 0.66rem; text-transform: uppercase; letter-spacing: 0.05em; color: $omc-muted; padding: 6px 8px; border-bottom: 1px solid $omc-line; }
+        td { padding: 6px 8px; border-bottom: 1px solid #f1f5f9; } }
+    .om-comm-detail-tools { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; padding: 0 18px 10px; }
+    .om-comm-chips { display: flex; gap: 6px; flex-wrap: wrap; }
+    .om-comm-chip {
+        border: 1px solid $omc-line; background: #fff; color: $omc-muted; border-radius: 999px; padding: 4px 10px; font-size: 0.76rem; font-weight: 700; cursor: pointer;
+        span { margin-left: 4px; background: #f1f5f9; border-radius: 999px; padding: 0 6px; font-size: 0.7rem; color: $omc-ink; }
+        &.active { background: $omc-900; color: #fff; border-color: $omc-900; span { background: rgba(255, 255, 255, 0.2); color: #fff; } }
+    }
+    .om-comm-more { text-align: center; padding: 12px; }
+    @media (max-width: 900px) { .om-comm-th-bar, .om-comm-th-status { display: none; } }
+}
