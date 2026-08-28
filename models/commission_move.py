@@ -482,14 +482,15 @@ class CommissionMove(models.Model):
                     role = ext_roles.setdefault(rk, {'partners': {}, 'bucket': new_bucket()})
                     feed(role['bucket'], m)
                     feed(role['partners'].setdefault(m.partner_id.id, new_bucket()), m)
-            for partner in seller_partners:
-                b = per_partner.get(partner.id, new_bucket())
-                sellers.append({'id': partner.id, 'name': partner.display_name, 'user_login': partner.user_ids[:1].login or '', **pack(b)})
-            # vendedores con movimientos que ya no son usuarios de ventas (histórico)
+            # Solo vendedores que ESTÁN comisionando en el periodo: quien no
+            # tiene movimientos no aparece (pedido del cliente).
             for pid, b in per_partner.items():
-                if pid not in seller_ids:
-                    partner = Partner.browse(pid)
-                    sellers.append({'id': pid, 'name': partner.display_name, 'user_login': '', 'inactive': True, **pack(b)})
+                if not b['count']:
+                    continue
+                partner = Partner.browse(pid)
+                sellers.append({'id': pid, 'name': partner.display_name,
+                                'user_login': partner.user_ids[:1].login or '',
+                                'inactive': pid not in seller_ids, **pack(b)})
             sellers.sort(key=lambda x: (-x['total'], x['name']))
             totals['sellers'] = round(sum(x['total'] for x in sellers), 2)
             for rk, role in sorted(ext_roles.items(), key=lambda kv: -kv[1]['bucket']['total']):

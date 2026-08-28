@@ -144,7 +144,7 @@
                 <div class="om-comm-card-head">
                     <div>
                         <h2>Vendedores</h2>
-                        <span class="om-comm-muted"><t t-esc="state.data.sellers.length"/> vendedor(es) · <t t-esc="sellersWithMoves"/> con comisión en <t t-esc="state.data.month_label"/> · total <strong><t t-esc="state.data.currency_symbol"/><t t-esc="fmt(state.data.totals.sellers)"/></strong></span>
+                        <span class="om-comm-muted"><t t-esc="state.data.sellers.length"/> vendedor(es) comisionando en <t t-esc="state.data.month_label"/> · total <strong><t t-esc="state.data.currency_symbol"/><t t-esc="fmt(state.data.totals.sellers)"/></strong></span>
                     </div>
                     <div class="om-comm-card-actions">
                         <button class="om-comm-btn-light" t-on-click="openStatement">Estado de cuenta</button>
@@ -190,7 +190,7 @@
                         </tbody>
                     </table>
                 </div>
-                <div class="om-comm-empty-inline" t-if="!state.data.sellers.length">No hay usuarios con permisos de ventas.</div>
+                <div class="om-comm-empty-inline" t-if="!state.data.sellers.length">Ningún vendedor comisiona en este periodo.</div>
             </div>
 
             <!-- ══ COMISIONISTAS EXTERNOS POR TIPO (administradores) ══ -->
