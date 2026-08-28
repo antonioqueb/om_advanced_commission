@@ -534,3 +534,8 @@ $omc-red: #dc2626;
     .om-comm-more { text-align: center; padding: 12px; }
     @media (max-width: 900px) { .om-comm-th-bar, .om-comm-th-status { display: none; } }
 }
+
+.om-comm-dash {
+    .om-comm-badge-ext { background: #e0e7ff; color: #3730a3; margin-left: 4px; }
+    .om-comm-mark { margin-left: 6px; border: 1px solid #c7d2fe; background: #eef2ff; color: #3730a3; border-radius: 6px; padding: 1px 7px; font-size: 0.68rem; font-weight: 800; cursor: pointer; &:hover { background: #e0e7ff; } }
+}

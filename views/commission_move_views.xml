@@ -5,6 +5,10 @@
         <field name="arch" type="xml">
             <list string="Movimientos" decoration-danger="amount &lt; 0"
                   decoration-warning="retention_factor &lt; 1" create="0">
+                <header>
+                    <button name="action_mark_paid_outside" type="object" string="Marcar como cobrada"
+                            groups="om_advanced_commission.group_commission_manager"/>
+                </header>
                 <field name="date"/>
                 <field name="name"/>
                 <field name="partner_id"/>
@@ -16,6 +20,7 @@
                 <field name="retention_factor" optional="hide"/>
                 <field name="origin_move_id" optional="hide"/>
                 <field name="adjustment_kind" optional="hide"/>
+                <field name="external_paid" string="Cobrada fuera" optional="show"/>
                 <field name="settlement_id" optional="hide" groups="om_advanced_commission.group_commission_manager"/>
                 <field name="currency_id" column_invisible="1"/>
                 <field name="state" widget="badge" decoration-success="state == 'invoiced'"
@@ -30,9 +35,23 @@
         <field name="arch" type="xml">
             <form string="Movimiento de Comisión" create="0">
                 <header>
+                    <button name="action_mark_paid_outside" type="object" string="Marcar como cobrada"
+                            class="btn-primary" invisible="state not in ['draft', 'settled']"
+                            groups="om_advanced_commission.group_commission_manager"/>
+                    <button name="action_undo_paid_outside" type="object" string="Quitar marca (volver a Pendiente)"
+                            class="btn-secondary" invisible="not external_paid"
+                            confirm="La comisión volverá a Pendiente y podrá liquidarse. ¿Continuar?"
+                            groups="om_advanced_commission.group_commission_manager"/>
                     <field name="state" widget="statusbar"/>
                 </header>
                 <sheet>
+                    <div class="alert alert-info" role="alert" invisible="not external_paid">
+                        <strong>Cobrada fuera del sistema.</strong>
+                        <field name="external_paid_note" readonly="1" class="oe_inline"/> ·
+                        marcó <field name="external_paid_by" readonly="1" class="oe_inline"/>
+                        el <field name="external_paid_date" readonly="1" class="oe_inline"/>.
+                        No entra a liquidación.
+                    </div>
                     <div class="oe_title">
                         <h1><field name="name" readonly="1"/></h1>
                     </div>
@@ -95,6 +114,7 @@
                 <separator/>
                 <filter name="retained" string="Con retención" domain="[('retention_factor', '&lt;', 1)]"/>
                 <filter name="reversals" string="Reversas" domain="[('origin_move_id', '!=', False)]"/>
+                <filter name="external_paid" string="Cobradas fuera del sistema" domain="[('external_paid', '=', True)]"/>
                 <filter name="refunds" string="Devoluciones" domain="[('is_refund', '=', True)]"/>
                 <filter name="group_partner" string="Comisionista" context="{'group_by': 'partner_id'}"/>
                 <filter name="group_order" string="Orden" context="{'group_by': 'sale_order_id'}"/>

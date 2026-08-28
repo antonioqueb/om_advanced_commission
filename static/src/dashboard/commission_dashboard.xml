@@ -339,6 +339,8 @@
                                         <span t-att-class="'om-comm-badge ' + stateBadge(row.state).cls" t-esc="stateBadge(row.state).label"/>
                                         <span t-if="row.retained" class="om-comm-badge om-comm-badge-retained" title="Excedente retenido por autorización pendiente">Retenido</span>
                                         <span t-if="row.incident" class="om-comm-badge om-comm-badge-incident" title="Cobro con incidencia abierta: no se liquida">Incidencia</span>
+                                        <span t-if="row.external_paid" class="om-comm-badge om-comm-badge-ext" title="Cobrada fuera del sistema: no se liquida">Cobrada fuera</span>
+                                        <button t-if="row.can_mark" class="om-comm-mark" t-on-click.stop="() => this.markPaid(row)" title="Marcar como ya cobrada por el vendedor (no se liquidará)">Cobrada</button>
                                     </td>
                                 </tr>
                             </tbody>

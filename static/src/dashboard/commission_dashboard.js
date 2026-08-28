@@ -271,6 +271,12 @@ export class CommissionDashboard extends Component {
         this.action.doAction({ type: "ir.actions.act_window", res_model: "commission.incident", res_id: id, views: [[false, "form"]], target: "current" });
     }
     openStatement() { this.action.doAction("om_advanced_commission.action_commission_statement"); }
+    markPaid(row) {
+        this.action.doAction({
+            type: "ir.actions.act_window", res_model: "commission.mark.paid.wizard", views: [[false, "form"]], target: "new",
+            name: "Marcar como cobrada", context: { default_move_ids: [[6, 0, [row.id]]] },
+        }, { onClose: () => this.load() });
+    }
     printReport() { this.action.doAction("om_advanced_commission.action_commission_report_wizard"); }
 }
 

@@ -3,7 +3,8 @@ from datetime import date, datetime, time as dtime, timedelta
 
 import pytz
 
-from odoo import models, fields, api
+from odoo import models, fields, api, _
+from odoo.exceptions import UserError
 from odoo.tools.misc import format_date
 
 
@@ -68,6 +69,14 @@ class CommissionMove(models.Model):
         ('cancel', 'Cancelado')
     ], default='draft', string='Estado', index=True)
 
+    # ── Cobrada fuera del sistema: el administrador identifica que esta
+    # comisión ya se le pagó al vendedor (p. ej. antes del módulo) y la
+    # marca para que NO vuelva a liquidarse. Queda como Pagado con rastro. ──
+    external_paid = fields.Boolean(string='Cobrada fuera del sistema', readonly=True, index=True)
+    external_paid_note = fields.Char(string='Motivo / referencia', readonly=True)
+    external_paid_by = fields.Many2one('res.users', string='Marcó', readonly=True)
+    external_paid_date = fields.Datetime(string='Fecha de marca', readonly=True)
+
     # Odoo 19: models.Constraint reemplaza a _sql_constraints. Una comisión
     # por (conciliación, beneficiario, orden, regla); las reversas viajan
     # con partial NULL y no colisionan.
@@ -87,6 +96,61 @@ class CommissionMove(models.Model):
             if vals.get('name', '/') == '/':
                 vals['name'] = self.env['ir.sequence'].next_by_code('commission.move') or 'COMM'
         return super().create(vals_list)
+
+    # ------------------------------------------------------------------
+    # Marcar como cobrada (solo Administrador de Comisiones)
+    # ------------------------------------------------------------------
+    def _check_commission_manager(self):
+        if not self.env.user.has_group('om_advanced_commission.group_commission_manager'):
+            raise UserError(_('Solo un Administrador de Comisiones puede marcar comisiones como cobradas.'))
+
+    def action_mark_paid_outside(self):
+        """Abre el wizard (motivo obligatorio) para las comisiones seleccionadas."""
+        self._check_commission_manager()
+        movable = self.filtered(lambda m: m.state in ('draft', 'settled'))
+        if not movable:
+            raise UserError(_('Selecciona comisiones Pendientes o En liquidación (no pagadas).'))
+        return {
+            'type': 'ir.actions.act_window', 'res_model': 'commission.mark.paid.wizard',
+            'view_mode': 'form', 'target': 'new', 'name': _('Marcar como cobrada'),
+            'context': {'default_move_ids': [(6, 0, movable.ids)]},
+        }
+
+    def _mark_paid_outside(self, note):
+        self._check_commission_manager()
+        note = (note or '').strip()
+        if not note:
+            raise UserError(_('Escribe el motivo o la referencia del pago anterior.'))
+        for move in self:
+            if move.state == 'invoiced':
+                continue
+            if move.state == 'settled' and move.settlement_id and move.settlement_id.state == 'invoiced':
+                raise UserError(_('%s ya está en una liquidación pagada.') % move.name)
+            if move.settlement_id:
+                move.settlement_id.message_post(
+                    body=_('Movimiento %s retirado: marcado como cobrado fuera del sistema (%s).') % (move.name, note))
+            move.write({
+                'state': 'invoiced', 'settlement_id': False,
+                'external_paid': True, 'external_paid_note': note,
+                'external_paid_by': self.env.user.id, 'external_paid_date': fields.Datetime.now(),
+            })
+            if move.sale_order_id:
+                move.sale_order_id.message_post(
+                    body=_('Comisión %s de %s marcada como COBRADA fuera del sistema por %s: %s. No se liquidará.')
+                    % (move.name, move.partner_id.display_name, self.env.user.name, note),
+                    message_type='notification')
+        return True
+
+    def action_undo_paid_outside(self):
+        """Revierte una marca hecha por error: vuelve a Pendiente."""
+        self._check_commission_manager()
+        for move in self.filtered('external_paid'):
+            move.write({'state': 'draft', 'external_paid': False})
+            if move.sale_order_id:
+                move.sale_order_id.message_post(
+                    body=_('Se retiró la marca "cobrada fuera del sistema" de %s (por %s): vuelve a Pendiente.')
+                    % (move.name, self.env.user.name), message_type='notification')
+        return True
 
     # ------------------------------------------------------------------
     # Helpers de grupo (Odoo 19: user_ids solo trae miembros directos)
@@ -494,6 +558,8 @@ class CommissionMove(models.Model):
                          else 'adjustment' if move.adjustment_kind == 'adjustment'
                          else 'refund' if move.is_refund else ''),
                 'retained': bool(move.retention_factor and 0 < move.retention_factor < 1.0),
+                'external_paid': bool(move.external_paid),
+                'can_mark': is_auth and move.state in ('draft', 'settled'),
             })
         kpis = pack(kpis_b)
 

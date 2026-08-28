@@ -13,3 +13,4 @@ access_commission_auth_reject_wizard,commission.authorization.reject.wizard all,
 access_commission_audit_manager,commission.audit manager,model_commission_audit,group_commission_manager,1,1,1,1
 access_commission_audit_line_manager,commission.audit.line manager,model_commission_audit_line,group_commission_manager,1,1,1,1
 access_commission_incident_manager,commission.incident manager,model_commission_incident,group_commission_manager,1,1,1,1
+access_commission_mark_paid_wizard_manager,commission.mark.paid.wizard manager,model_commission_mark_paid_wizard,group_commission_manager,1,1,1,1
