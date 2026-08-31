@@ -32,7 +32,7 @@ class ReportCommissionPDF(models.AbstractModel):
         # o por fecha de COBRO (lo que paga la liquidación).
         domain = [
             ('state', '!=', 'cancel'),
-            ('company_id', '=', self.env.company.id),
+            ('company_id', 'in', self.env.companies.ids),
             ('partner_id.commission_excluded', '=', False),
         ] + Move._commission_period_domain(date_from_d, date_to_d, basis)
 

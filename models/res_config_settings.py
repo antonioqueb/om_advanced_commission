@@ -10,11 +10,10 @@ class ResConfigSettings(models.TransientModel):
         config_parameter='om_advanced_commission.default_commission_product_id',
         help='Producto de servicio usado al generar facturas de proveedor para comisionistas.'
     )
+    # Por compañía (res.company.commission_journal_id); antes era parámetro global.
     commission_journal_id = fields.Many2one(
-        'account.journal',
+        related='company_id.commission_journal_id', readonly=False,
         string='Diario de Comisiones',
-        config_parameter='om_advanced_commission.default_commission_journal_id',
-        domain=[('type', '=', 'purchase')]
     )
     commission_seller_max_percent = fields.Float(
         string='% Máx. Vendedores sin Autorización',

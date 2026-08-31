@@ -95,6 +95,8 @@ class CommissionSettlement(models.Model):
             raise UserError("Este beneficiario no se paga con factura de proveedor (ver ficha del contacto).")
 
         param_obj = self.env['ir.config_parameter'].sudo()
+        # Diario POR compañía (res.company); el parámetro global queda como
+        # respaldo solo si pertenece a la compañía de la liquidación.
         journal_id_str = param_obj.get_param('om_advanced_commission.default_commission_journal_id')
         product = self.partner_id.commission_product_id
         if not product:
@@ -103,10 +105,14 @@ class CommissionSettlement(models.Model):
                 product = self.env['product.product'].browse(int(prod_id_str)).exists() if prod_id_str else None
             except (ValueError, TypeError):
                 product = None
-        try:
-            journal = self.env['account.journal'].browse(int(journal_id_str)).exists() if journal_id_str else None
-        except (ValueError, TypeError):
-            journal = None
+        journal = self.company_id.commission_journal_id
+        if not journal:
+            try:
+                journal = self.env['account.journal'].browse(int(journal_id_str)).exists() if journal_id_str else None
+            except (ValueError, TypeError):
+                journal = None
+            if journal and journal.company_id != self.company_id:
+                journal = None
 
         if not product or not journal:
             raise ValidationError("Falta configuración. Ve a Ajustes > Ventas > Configuración Comisiones "
@@ -116,7 +122,7 @@ class CommissionSettlement(models.Model):
 
         # Impuestos/retenciones: los de proveedor del producto (ISR/IVA para
         # persona física se configuran en el producto del beneficiario).
-        bill = self.env['account.move'].create({
+        bill = self.env['account.move'].with_company(self.company_id).create({
             'move_type': 'in_invoice',
             'partner_id': self.partner_id.id,
             'company_id': self.company_id.id,

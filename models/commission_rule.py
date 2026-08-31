@@ -7,6 +7,10 @@ class SaleCommissionRule(models.Model):
     _description = 'Regla de Comisión en Ventas'
 
     sale_order_id = fields.Many2one('sale.order', ondelete='cascade', index=True)
+    # Línea de la orden: hereda su compañía (NULL = regla sin orden, compartida).
+    company_id = fields.Many2one(
+        'res.company', string='Compañía', related='sale_order_id.company_id',
+        store=True, readonly=True, index=True)
     partner_id = fields.Many2one('res.partner', string='Beneficiario', required=True)
 
     role_type = fields.Selection([

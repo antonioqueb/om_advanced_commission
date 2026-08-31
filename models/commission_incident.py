@@ -50,7 +50,10 @@ class CommissionIncident(models.Model):
     def create(self, vals_list):
         for vals in vals_list:
             if vals.get('name', '/') == '/':
-                vals['name'] = self.env['ir.sequence'].next_by_code('commission.incident') or 'INC'
+                company = (self.env['res.company'].browse(vals['company_id'])
+                           if vals.get('company_id') else self.env.company)
+                vals['name'] = self.env['commission.move']._som_next_sequence(
+                    'commission.incident', company) or 'INC'
         recs = super().create(vals_list)
         recs._notify()
         return recs
@@ -240,7 +243,9 @@ class CommissionIncident(models.Model):
             return
         Receipt = self.env['cash.receipt'].sudo()
         since = fields.Date.context_today(self) - timedelta(days=days)
-        receipts = Receipt.search([('payment_id', '!=', False), ('create_date', '>=', since)])
+        # sudo salta las reglas: el cron itera compañías con with_company.
+        receipts = Receipt.search([('payment_id', '!=', False), ('create_date', '>=', since),
+                                   ('company_id', '=', self.env.company.id)])
         by_payment = {}
         for r in receipts:
             by_payment.setdefault(r.payment_id, Receipt)
@@ -279,8 +284,11 @@ class CommissionIncident(models.Model):
     @api.model
     def _blocked_commission_moves(self, moves):
         """Movimientos de comisión cuyo cobro tiene incidencia ABIERTA."""
-        open_inc = self.sudo().search([('state', '=', 'open'), ('kind', '!=', 'over_order')])
-        if not open_inc or not moves:
+        if not moves:
+            return moves.browse()
+        open_inc = self.sudo().search([('state', '=', 'open'), ('kind', '!=', 'over_order'),
+                                       ('company_id', 'in', moves.mapped('company_id').ids)])
+        if not open_inc:
             return moves.browse()
         pay_moves = open_inc.mapped('payment_move_id')
         payments = open_inc.mapped('payment_id')

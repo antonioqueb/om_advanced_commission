@@ -20,7 +20,11 @@
                     <div class="col-12 col-lg-6 o_setting_box">
                         <div class="o_setting_right_pane">
                             <label for="commission_journal_id"/>
-                            <field name="commission_journal_id"/>
+                            <field name="commission_journal_id"
+                                   domain="[('type', '=', 'purchase'), ('company_id', '=', company_id)]"/>
+                            <div class="text-muted">
+                                Diario de compras de la compañía activa para las facturas de liquidación.
+                            </div>
                         </div>
                     </div>
                     <div class="col-12 col-lg-6 o_setting_box">

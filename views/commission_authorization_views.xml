@@ -26,6 +26,7 @@
                     <group>
                         <group string="Solicitud">
                             <field name="sale_order_id" readonly="state != 'draft'"/>
+                            <field name="company_id" groups="base.group_multi_company"/>
                             <field name="auth_type" readonly="state != 'draft'"/>
                             <field name="requested_by" readonly="1"/>
                             <field name="authorizer_id" readonly="state not in ['draft', 'pending']"

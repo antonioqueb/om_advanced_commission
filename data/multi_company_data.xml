@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <!-- Idempotente: migra el diario de comisiones del parámetro global al
+         campo por compañía (solo donde esté vacío). Corre en cada -u. -->
+    <function model="res.company" name="_som_migrate_commission_journal"/>
+</odoo>

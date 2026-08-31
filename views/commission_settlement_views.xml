@@ -23,6 +23,7 @@
                     <group>
                         <group>
                             <field name="partner_id" readonly="state != 'draft'"/>
+                            <field name="company_id" groups="base.group_multi_company" readonly="state != 'draft'"/>
                             <field name="payout_method"/>
                             <field name="date" readonly="state != 'draft'"/>
                         </group>

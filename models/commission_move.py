@@ -90,11 +90,32 @@ class CommissionMove(models.Model):
         for m in self:
             m.is_reversal = bool(m.origin_move_id) and m.adjustment_kind != 'adjustment'
 
+    @api.model
+    def _som_next_sequence(self, code, company=None):
+        """next_by_code con la compañía del documento; si la compañía no tiene
+        secuencia propia y la plantilla es de otra compañía, se clona para ella."""
+        company = company or self.env.company
+        Seq = self.env['ir.sequence'].sudo()
+        name = Seq.with_company(company).next_by_code(code)
+        if name:
+            return name
+        template = Seq.search([('code', '=', code)], order='company_id', limit=1)
+        if not template:
+            return False
+        template.copy({
+            'company_id': company.id,
+            'number_next': 1,
+            'name': '%s (%s)' % (template.name, company.name),
+        })
+        return Seq.with_company(company).next_by_code(code)
+
     @api.model_create_multi
     def create(self, vals_list):
         for vals in vals_list:
             if vals.get('name', '/') == '/':
-                vals['name'] = self.env['ir.sequence'].next_by_code('commission.move') or 'COMM'
+                company = (self.env['res.company'].browse(vals['company_id'])
+                           if vals.get('company_id') else self.env.company)
+                vals['name'] = self._som_next_sequence('commission.move', company) or 'COMM'
         return super().create(vals_list)
 
     # ------------------------------------------------------------------
@@ -428,9 +449,11 @@ class CommissionMove(models.Model):
         last = date(year, mon, monthrange(year, mon)[1])
         basis = 'payment' if basis == 'payment' else 'order'
 
+        # Panel: compañías seleccionadas en el switcher; se presenta en la
+        # moneda de la compañía activa (conversión con la compañía de cada movimiento).
         base_domain = [
             ('state', '!=', 'cancel'),
-            ('company_id', '=', self.env.company.id),
+            ('company_id', 'in', self.env.companies.ids),
             ('partner_id.commission_excluded', '=', False),   # nunca figuran
         ] + self._commission_period_domain(first, last, basis)
         domain = list(base_domain)
@@ -450,7 +473,7 @@ class CommissionMove(models.Model):
             cur = move.currency_id
             if not cur or cur == company_cur:
                 return amount or 0.0
-            return cur._convert(amount or 0.0, company_cur, company, move.date or today)
+            return cur._convert(amount or 0.0, company_cur, move.company_id or company, move.date or today)
 
         def fmt_dt(value):
             return format_date(self.env, value, date_format='dd MMM yyyy') if value else ''
@@ -601,7 +624,7 @@ class CommissionMove(models.Model):
                 Incident.sudo()._detect_receipt_mismatches()
             except Exception:  # noqa: BLE001
                 pass
-            open_inc = Incident.sudo().search([('state', '=', 'open'), ('company_id', '=', company.id)])
+            open_inc = Incident.sudo().search([('state', '=', 'open'), ('company_id', 'in', self.env.companies.ids)])
             incidents = {
                 'count': len(open_inc),
                 'rows': [{
@@ -631,7 +654,7 @@ class CommissionMove(models.Model):
         for (ty, tm) in reversed(months):
             f = date(ty, tm, 1)
             l = date(ty, tm, monthrange(ty, tm)[1])
-            dom = [('state', '!=', 'cancel'), ('company_id', '=', company.id),
+            dom = [('state', '!=', 'cancel'), ('company_id', 'in', self.env.companies.ids),
                    ('partner_id.commission_excluded', '=', False)]
             dom += self._commission_period_domain(f, l, basis)
             if not is_auth:

@@ -39,7 +39,9 @@ class CommissionAuthorization(models.Model):
         ('approved', 'Aprobado'),
         ('rejected', 'Rechazado'),
     ], default='draft', tracking=True)
-    company_id = fields.Many2one('res.company', default=lambda self: self.env.company)
+    company_id = fields.Many2one(
+        'res.company', string='Compañía', related='sale_order_id.company_id',
+        store=True, readonly=True, index=True)
     reject_reason = fields.Text(string='Motivo de Rechazo', readonly=True)
     authorization_date = fields.Datetime(string='Fecha de Resolución', readonly=True)
     authorized_by = fields.Many2one('res.users', string='Resuelto por', readonly=True)

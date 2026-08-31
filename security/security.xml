@@ -35,6 +35,28 @@
         <field name="domain_force">[('company_id', 'in', company_ids)]</field>
     </record>
 
+    <record id="rule_commission_authorization_company" model="ir.rule">
+        <field name="name">Autorización de comisión: multiempresa</field>
+        <field name="model_id" ref="model_commission_authorization"/>
+        <field name="domain_force">['|', ('company_id', '=', False), ('company_id', 'in', company_ids)]</field>
+        <field name="global" eval="True"/>
+    </record>
+
+    <record id="rule_commission_incident_company" model="ir.rule">
+        <field name="name">Incidencia de cobro: multiempresa</field>
+        <field name="model_id" ref="model_commission_incident"/>
+        <field name="domain_force">['|', ('company_id', '=', False), ('company_id', 'in', company_ids)]</field>
+        <field name="global" eval="True"/>
+    </record>
+
+    <!-- Reglas de comisión: líneas de la orden (NULL = sin orden, compartida). -->
+    <record id="rule_sale_commission_rule_company" model="ir.rule">
+        <field name="name">Regla de comisión: multiempresa</field>
+        <field name="model_id" ref="model_sale_commission_rule"/>
+        <field name="domain_force">['|', ('company_id', '=', False), ('company_id', 'in', company_ids)]</field>
+        <field name="global" eval="True"/>
+    </record>
+
     <!-- Regla: el Administrador de Comisiones ve TODOS los movimientos.
          Las reglas de grupo se unen con OR: sin esta, un administrador que
          además es vendedor quedaba limitado a los suyos y la única forma de

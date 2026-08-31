@@ -95,6 +95,7 @@
                 <separator/>
                 <filter name="group_kind" string="Tipo" context="{'group_by': 'kind'}"/>
                 <filter name="group_partner" string="Cliente" context="{'group_by': 'partner_id'}"/>
+                <filter name="group_company" string="Compañía" context="{'group_by': 'company_id'}" groups="base.group_multi_company"/>
             </search>
         </field>
     </record>

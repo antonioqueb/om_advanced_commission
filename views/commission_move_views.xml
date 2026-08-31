@@ -119,6 +119,7 @@
                 <filter name="group_partner" string="Comisionista" context="{'group_by': 'partner_id'}"/>
                 <filter name="group_order" string="Orden" context="{'group_by': 'sale_order_id'}"/>
                 <filter name="group_state" string="Estado" context="{'group_by': 'state'}"/>
+                <filter name="group_company" string="Compañía" context="{'group_by': 'company_id'}" groups="base.group_multi_company"/>
             </search>
         </field>
     </record>
