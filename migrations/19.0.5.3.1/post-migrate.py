@@ -17,6 +17,9 @@ def migrate(cr, version):
     pending = Move.search([('partner_id.commission_excluded', '=', True), ('state', '=', 'draft')])
     if pending:
         pending.with_context(petty_cash_internal=True).write({'state': 'cancel'})
+        # commission.move no hereda mail.thread: sin el guard, toda BD que
+        # venga de una versión < 5.3.1 (p.ej. QA) aborta el -u aquí.
         for m in pending:
-            m.message_post(body='Cancelado por migración 19.0.5.3.1: beneficiario excluido de comisiones.',
-                           message_type='notification')
+            if hasattr(m, 'message_post'):
+                m.message_post(body='Cancelado por migración 19.0.5.3.1: beneficiario excluido de comisiones.',
+                               message_type='notification')
