@@ -70,7 +70,7 @@
                                         <span t-else="">-</span>
                                     </td>
                                     <td class="align-middle">
-                                        <span t-field="move.sale_order_id.partner_id.name"
+                                        <span t-esc="move.sale_order_id.x_partner_display"
                                               style="font-weight: 500;"/>
                                     </td>
                                     <td class="align-middle som-muted">
