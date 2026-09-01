@@ -23,6 +23,12 @@ class CommissionMove(models.Model):
     sale_order_ref = fields.Char(
         related='sale_order_id.client_order_ref',
         string='Referencia de la orden', store=True)
+    project_id = fields.Many2one(
+        related='sale_order_id.x_project_id',
+        string='Proyecto (Job Name)', store=True)
+    customer_id = fields.Many2one(
+        related='sale_order_id.partner_id',
+        string='Cliente', store=True)
     invoice_line_id = fields.Many2one('account.move.line', string='Línea de Factura Origen')
     payment_id = fields.Many2one('account.payment', string='Pago Cliente')
     partial_reconcile_id = fields.Many2one('account.partial.reconcile', string='Conciliación Origen',
