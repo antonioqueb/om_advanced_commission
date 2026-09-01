@@ -1,4 +1,20 @@
 <odoo>
+    <!-- Alinear Comisiones desde el engrane (menú Acciones) del formulario;
+         mismo método y mismo grupo que tenía el botón de cabecera. -->
+    <record id="action_server_recalc_commissions" model="ir.actions.server">
+        <field name="name">Alinear Comisiones</field>
+        <field name="model_id" ref="sale.model_sale_order"/>
+        <field name="binding_model_id" ref="sale.model_sale_order"/>
+        <field name="binding_view_types">form</field>
+        <field name="state">code</field>
+        <field name="group_ids" eval="[(4, ref('om_advanced_commission.group_commission_manager'))]"/>
+        <field name="code">
+targets = records.filtered(lambda r: r.state in ('sale', 'done'))
+if targets:
+    action = targets[:1].action_recalc_commissions()
+        </field>
+    </record>
+
     <record id="view_order_form_commission" model="ir.ui.view">
         <field name="name">sale.order.form.commission</field>
         <field name="model">sale.order</field>
@@ -6,12 +22,8 @@
         <field name="arch" type="xml">
 
             <xpath expr="//header" position="inside">
-                <button name="action_recalc_commissions"
-                        string="Alinear Comisiones"
-                        type="object"
-                        class="btn-secondary"
-                        groups="om_advanced_commission.group_commission_manager"
-                        invisible="state not in ['sale', 'done']"/>
+                <!-- "Alinear Comisiones" vive en el ENGRANE (menú de acciones)
+                     para no saturar la cabecera; ver action_server más abajo. -->
                 <button name="action_request_commission_auth"
                         string="Solicitar Autorización de Comisión"
                         type="object"
