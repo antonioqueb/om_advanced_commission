@@ -14,6 +14,7 @@
                 <field name="partner_id"/>
                 <field name="rule_role" optional="show"/>
                 <field name="sale_order_id"/>
+                <field name="sale_order_ref" optional="show"/>
                 <field name="invoice_name" optional="show"/>
                 <field name="base_amount_paid" sum="Base" optional="show"/>
                 <field name="amount" sum="Total"/>

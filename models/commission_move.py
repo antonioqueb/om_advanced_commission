@@ -20,6 +20,9 @@ class CommissionMove(models.Model):
     invoice_id = fields.Many2one('account.move', string='Factura', index=True)
     # related = se lee con sudo: el vendedor ve el folio sin permisos contables
     invoice_name = fields.Char(related='invoice_id.name', string='Factura', store=True)
+    sale_order_ref = fields.Char(
+        related='sale_order_id.client_order_ref',
+        string='Referencia de la orden', store=True)
     invoice_line_id = fields.Many2one('account.move.line', string='Línea de Factura Origen')
     payment_id = fields.Many2one('account.payment', string='Pago Cliente')
     partial_reconcile_id = fields.Many2one('account.partial.reconcile', string='Conciliación Origen',
