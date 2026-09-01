@@ -10,6 +10,7 @@
                             groups="om_advanced_commission.group_commission_manager"/>
                 </header>
                 <field name="date"/>
+                <field name="payment_date" optional="show"/>
                 <field name="name"/>
                 <field name="partner_id"/>
                 <field name="rule_role" optional="show"/>
@@ -121,6 +122,7 @@
                 <filter name="refunds" string="Devoluciones" domain="[('is_refund', '=', True)]"/>
                 <filter name="group_partner" string="Comisionista" context="{'group_by': 'partner_id'}"/>
                 <filter name="group_order" string="Orden" context="{'group_by': 'sale_order_id'}"/>
+                <filter name="group_payment_date" string="Fecha del pago" context="{'group_by': 'payment_date'}"/>
                 <filter name="group_state" string="Estado" context="{'group_by': 'state'}"/>
                 <filter name="group_company" string="Compañía" context="{'group_by': 'company_id'}" groups="base.group_multi_company"/>
             </search>

@@ -29,6 +29,16 @@ class CommissionMove(models.Model):
     customer_id = fields.Many2one(
         related='sale_order_id.partner_id',
         string='Cliente', store=True)
+    payment_date = fields.Date(
+        string='Fecha del pago', compute='_compute_payment_date', store=True,
+        index=True,
+        help='Fecha del pago del cliente que originó la comisión; si el '
+             'movimiento no nació de un pago, la fecha del movimiento.')
+
+    @api.depends('payment_id.date', 'date')
+    def _compute_payment_date(self):
+        for move in self:
+            move.payment_date = move.payment_id.date or move.date
     invoice_line_id = fields.Many2one('account.move.line', string='Línea de Factura Origen')
     payment_id = fields.Many2one('account.payment', string='Pago Cliente')
     partial_reconcile_id = fields.Many2one('account.partial.reconcile', string='Conciliación Origen',
