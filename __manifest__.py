@@ -1,13 +1,16 @@
 {
     'name': 'Gestión Avanzada de Comisiones (Cash Basis & Proyectos)',
-    'version': '19.0.6.1.0',
+    'version': '19.0.6.1.1',
     'category': 'Sales/Commissions',
     'summary': 'Motor de comisiones multi-agente sobre cobros: cálculo por línea de factura sin IVA, '
                'bienes vs servicios por rol, fecha de cobro única, inicio no retroactivo, '
                'retención por autorización, reversas y liquidaciones.',
     'author': 'Alphaqueb Consulting',
     # stock_lot_dimensions: sistema de diseño global de reportes SOM (som_report_style)
-    'depends': ['sale_management', 'account', 'purchase', 'project', 'stock_lot_dimensions'],
+    # cash_receipt_voucher: se carga ANTES para que "factura = orden" genere
+    # las complementarias y aquí, al final del -u, se apliquen los cobros.
+    'depends': ['sale_management', 'account', 'purchase', 'project', 'stock_lot_dimensions',
+                'cash_receipt_voucher'],
     'data': [
         'security/security.xml',
         'security/ir.model.access.csv',

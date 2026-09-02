@@ -19,4 +19,11 @@
             <field name="value">True</field>
         </record>
     </data>
+
+    <data>
+        <!-- En cada actualización: todo cobro con saldo sin aplicar se aplica a
+             las facturas abiertas (incluidas las complementarias que acaba de
+             generar "factura = orden"). Idempotente. -->
+        <function model="account.payment" name="_som_auto_apply_all"/>
+    </data>
 </odoo>
