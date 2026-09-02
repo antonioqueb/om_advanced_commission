@@ -51,6 +51,14 @@ class ResConfigSettings(models.TransientModel):
              'se considera pagado fuera del sistema: no aparece pendiente, en el panel ni en '
              'reportes, y no genera asientos.')
 
+    # ── Cobros siempre aplicados a factura ──
+    commission_auto_apply_payments = fields.Boolean(
+        string='Aplicar cobros a facturas automáticamente',
+        config_parameter='om_advanced_commission.auto_apply_payments',
+        help='Al registrar un pago de cliente o publicar una factura, el saldo sin aplicar se '
+             'aplica solo a las facturas abiertas del cliente (misma moneda; primero la del memo, '
+             'luego las más antiguas). Un pago sin aplicar no comisiona.')
+
     # ── Quién comisiona sobre SERVICIOS (fletes, manejo de materiales, corte…) ──
     commission_services_internal = fields.Boolean(
         string='Vendedores',
@@ -85,6 +93,21 @@ class ResConfigSettings(models.TransientModel):
         # Cadena vacía = nadie comisiona sobre servicios (set_param con False
         # borraría el parámetro y regresaría al default).
         self.env['ir.config_parameter'].sudo().set_param(SERVICE_ROLES_PARAM, ','.join(roles) or ' ')
+
+    def action_commission_apply_payments_now(self):
+        """Aplica ahora todos los cobros con saldo sin aplicar."""
+        self.ensure_one()
+        self.set_values()
+        applied = self.env['account.payment']._som_auto_apply_all()
+        return {
+            'type': 'ir.actions.client', 'tag': 'display_notification',
+            'params': {
+                'title': 'Cobros aplicados',
+                'message': '%d aplicación(es) de cobros a facturas. Lo que no encontró factura queda '
+                           'como anticipo y se aplica al facturar.' % len(applied),
+                'type': 'success', 'sticky': False,
+            },
+        }
 
     def action_commission_apply_start_date(self):
         """Cierra lo pendiente con cobro anterior al inicio (idempotente)."""

@@ -660,6 +660,14 @@ class CommissionMove(models.Model):
         }
 
     @api.model
+    def apply_unapplied_payments(self):
+        """Botón del panel: aplica ahora los cobros con saldo sin aplicar."""
+        if not self.env.user.has_group('om_advanced_commission.group_commission_manager'):
+            raise UserError(_('Solo un Administrador de Comisiones puede aplicar cobros.'))
+        applied = self.env['account.payment']._som_auto_apply_all()
+        return {'count': len(applied), 'total': round(sum(a[2] for a in applied), 2)}
+
+    @api.model
     def _commission_uncommissioned_partials(self, date_from, date_to, limit=8):
         """Cobros aplicados a facturas de órdenes que NO generaron comisión
         (orden sin vendedor ni reglas, o error al conciliar)."""

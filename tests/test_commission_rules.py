@@ -285,3 +285,56 @@ class TestCommissionRules(TransactionCase):
         self.assertMoney(internal.estimated_amount, 2750.0)
         # % externo equivalente sobre el subtotal comisionable (120,000)
         self.assertAlmostEqual(so.total_external_percent, 8.3333, places=3)
+
+    # ------------------------------------------------------------------
+    # 7. Todo cobro se aplica a factura: pago suelto con memo y sobrante FIFO
+    # ------------------------------------------------------------------
+    def _standalone_payment(self, amount, memo='', pay_date=None):
+        payment = self.env['account.payment'].create({
+            'payment_type': 'inbound', 'partner_type': 'customer',
+            'partner_id': self.customer.id, 'amount': amount, 'memo': memo,
+            'date': pay_date or fields.Date.today(), 'journal_id': self.bank_journal.id,
+            'currency_id': self.cur.id,
+        })
+        payment.action_post()
+        return payment
+
+    def test_07_payment_auto_applied_memo_then_fifo(self):
+        so_a = self._order(goods=100000.0, services=0.0)   # 116,000 con IVA
+        so_b = self._order(goods=50000.0, services=0.0)    # 58,000 con IVA
+        inv_a = self._invoice(so_a)
+        inv_b = self._invoice(so_b)
+        inv_a.invoice_date_due = fields.Date.today() - timedelta(days=30)   # A es la más antigua
+        # Pago suelto (sin asistente) que menciona la factura B y trae de más:
+        # primero B completa, el sobrante a la más antigua (A).
+        pay = self._standalone_payment(58000.0 + 23200.0, memo='Pago %s' % inv_b.name)
+        self.assertMoney(pay._som_unapplied_amount(), 0.0, 'nada queda sin aplicar')
+        self.assertMoney(inv_b.amount_residual, 0.0)
+        self.assertMoney(inv_a.amount_residual, 116000.0 - 23200.0)
+        # Comisiones: B completa (2.5 % de 50,000) y A al 20 % (2.5 % de 20,000)
+        self.assertMoney(sum(self._moves(so_b).mapped('amount')), 1250.0)
+        self.assertMoney(sum(self._moves(so_a).mapped('amount')), 500.0)
+        self.assertEqual(self._moves(so_a).payment_date, pay.date)
+
+    # ------------------------------------------------------------------
+    # 8. Anticipo: el pago llega antes que la factura y se aplica al facturar
+    # ------------------------------------------------------------------
+    def test_08_prepayment_applied_when_invoice_posted(self):
+        so = self._order(goods=100000.0, services=0.0)
+        pay_date = fields.Date.today() - timedelta(days=15)
+        pay = self._standalone_payment(116000.0, memo='Anticipo %s' % so.name, pay_date=pay_date)
+        self.assertMoney(pay._som_unapplied_amount(), 116000.0, 'sin factura queda como anticipo')
+        self.assertFalse(self._moves(so))
+        inv = self._invoice(so)   # al publicar, el anticipo se aplica solo
+        self.assertMoney(inv.amount_residual, 0.0)
+        self.assertMoney(pay._som_unapplied_amount(), 0.0)
+        move = self._moves(so)
+        self.assertMoney(move.amount, 2500.0)
+        self.assertEqual(move.payment_date, pay_date, 'la comisión lleva la fecha real del cobro')
+        # Con la opción apagada no se aplica nada.
+        self.env['ir.config_parameter'].sudo().set_param('om_advanced_commission.auto_apply_payments', 'False')
+        so2 = self._order(goods=10000.0, services=0.0)
+        pay2 = self._standalone_payment(11600.0)
+        inv2 = self._invoice(so2)
+        self.assertMoney(pay2._som_unapplied_amount(), 11600.0)
+        self.assertMoney(inv2.amount_residual, 11600.0)

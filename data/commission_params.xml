@@ -12,5 +12,11 @@
             <field name="key">om_advanced_commission.service_roles</field>
             <field name="value">internal</field>
         </record>
+        <!-- Todo cobro de cliente se aplica solo a sus facturas (un pago sin
+             aplicar es error de captura y no comisiona). -->
+        <record id="param_commission_auto_apply" model="ir.config_parameter">
+            <field name="key">om_advanced_commission.auto_apply_payments</field>
+            <field name="value">True</field>
+        </record>
     </data>
 </odoo>

@@ -283,10 +283,18 @@
                     <div class="om-comm-nocomm" t-if="state.data.unapplied.count">
                         <div class="om-comm-nocomm-head om-comm-clickable" t-on-click="toggleUnapplied">
                             <div>
-                                <strong>Pagos sin aplicar a factura</strong> <span class="om-comm-count" t-esc="state.data.unapplied.count"/>
-                                <div class="om-comm-muted">El dinero está en el banco pero no se ha aplicado a una factura: <b><t t-esc="state.data.currency_symbol"/><t t-esc="fmt(state.data.unapplied.total)"/></b> sin comisionar. Aplica el pago a la factura de la orden y la comisión nace sola.</div>
+                                <strong>Pagos con saldo sin aplicar a factura</strong> <span class="om-comm-count" t-esc="state.data.unapplied.count"/>
+                                <div class="om-comm-muted">
+                                    <b><t t-esc="state.data.currency_symbol"/><t t-esc="fmt(state.data.unapplied.total)"/></b> en el banco sin factura que lo respalde: no comisiona.
+                                    El sistema lo aplica solo a las facturas abiertas del cliente; si sigue aquí es porque el cliente
+                                    <b>no tiene factura abierta</b> (anticipo o sobrepago): se aplicará al publicar su siguiente factura, o hay que emitirla.
+                                </div>
+                                <div class="om-comm-muted" t-if="state.applyResult"><b>Última aplicación:</b> <t t-esc="state.applyResult.count"/> cobro(s) aplicados por <t t-esc="state.data.currency_symbol"/><t t-esc="fmt(state.applyResult.total)"/>.</div>
                             </div>
-                            <span class="om-comm-role-chevron" t-esc="state.showUnapplied ? '▴' : '▾'"/>
+                            <div class="om-comm-card-actions">
+                                <button class="om-comm-btn-light" t-att-disabled="state.applying" t-on-click.stop="applyPaymentsNow" title="Aplica ahora los cobros pendientes a las facturas abiertas de cada cliente"><t t-esc="state.applying ? 'Aplicando…' : 'Aplicar ahora'"/></button>
+                                <span class="om-comm-role-chevron" t-esc="state.showUnapplied ? '▴' : '▾'"/>
+                            </div>
                         </div>
                         <table class="om-comm-mini" t-if="state.showUnapplied">
                             <thead><tr><th>Fecha</th><th>Pago</th><th>Cliente</th><th class="om-comm-num">Pagó</th><th class="om-comm-num">Sin aplicar</th></tr></thead>

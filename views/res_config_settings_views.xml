@@ -43,6 +43,27 @@
                         </div>
                     </div>
 
+                    <!-- ══ Cobros siempre aplicados ══ -->
+                    <div class="col-12 col-lg-6 o_setting_box">
+                        <div class="o_setting_left_pane">
+                            <field name="commission_auto_apply_payments"/>
+                        </div>
+                        <div class="o_setting_right_pane">
+                            <label for="commission_auto_apply_payments"/>
+                            <div class="text-muted">
+                                Un pago sin aplicar a factura <b>no comisiona</b>. Al registrar un pago o
+                                publicar una factura, el saldo sin aplicar se aplica solo a las facturas
+                                abiertas del cliente (misma moneda; primero la del memo, luego las más
+                                antiguas). Lo que no encuentre factura queda como anticipo y se aplica al
+                                facturar. Cron diario de respaldo.
+                            </div>
+                            <button name="action_commission_apply_payments_now" type="object"
+                                    string="Aplicar cobros pendientes ahora"
+                                    class="btn-link" icon="fa-magic"
+                                    confirm="Se aplicarán todos los cobros de cliente con saldo sin aplicar a sus facturas abiertas (misma moneda, más antiguas primero). ¿Continuar?"/>
+                        </div>
+                    </div>
+
                     <!-- ══ Inicio de comisiones ══ -->
                     <div class="col-12 col-lg-6 o_setting_box">
                         <div class="o_setting_right_pane">

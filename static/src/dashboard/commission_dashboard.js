@@ -26,6 +26,8 @@ export class CommissionDashboard extends Component {
             showIncidents: false,
             showUnapplied: true,
             showUncommissioned: true,
+            applying: false,
+            applyResult: null,
             // tabla de personas
             sortKey: "total",
             sortDir: -1,
@@ -254,6 +256,17 @@ export class CommissionDashboard extends Component {
         this.action.doAction({ type: "ir.actions.act_window", res_model: "account.payment", res_id: id, views: [[false, "form"]], target: "current" });
     }
     openAudit() { this.action.doAction("om_advanced_commission.action_commission_audit"); }
+    async applyPaymentsNow() {
+        if (this.state.applying) return;
+        this.state.applying = true;
+        try {
+            const res = await this.orm.call("commission.move", "apply_unapplied_payments", []);
+            this.state.applyResult = res;
+            await this.load();
+        } finally {
+            this.state.applying = false;
+        }
+    }
     openIncidents() { this.action.doAction("om_advanced_commission.action_commission_incident"); }
     openIncident(id) {
         this.action.doAction({ type: "ir.actions.act_window", res_model: "commission.incident", res_id: id, views: [[false, "form"]], target: "current" });
