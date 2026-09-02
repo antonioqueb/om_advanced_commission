@@ -7,6 +7,10 @@ from odoo import models, fields, api, _
 from odoo.exceptions import UserError
 from odoo.tools.misc import format_date
 
+# Definido FUERA de la clase: dentro del cuerpo de la clase `date` es el
+# campo fields.Date del modelo, no datetime.date.
+COMMISSION_START_DEFAULT = date(2026, 8, 1)
+
 
 class CommissionMove(models.Model):
     _name = 'commission.move'
@@ -236,7 +240,7 @@ class CommissionMove(models.Model):
     # Inicio de comisiones (corte NO retroactivo, siempre por fecha de cobro)
     # ------------------------------------------------------------------
     START_DATE_PARAM = 'om_advanced_commission.start_date'
-    START_DATE_DEFAULT = date(2026, 8, 1)
+    START_DATE_DEFAULT = COMMISSION_START_DEFAULT
 
     @api.model
     def _commission_start_date(self):
