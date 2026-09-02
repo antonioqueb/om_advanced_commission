@@ -1,3 +1,4 @@
+import logging
 from calendar import monthrange
 from datetime import date, datetime, time as dtime, timedelta
 
@@ -6,6 +7,8 @@ import pytz
 from odoo import models, fields, api, _
 from odoo.exceptions import UserError
 from odoo.tools.misc import format_date
+
+_logger = logging.getLogger(__name__)
 
 # Definido FUERA de la clase: dentro del cuerpo de la clase `date` es el
 # campo fields.Date del modelo, no datetime.date.
@@ -290,6 +293,52 @@ class CommissionMove(models.Model):
         ])
         return pending._commission_close_before_start()
 
+    @api.model
+    def _commission_purge_unbacked(self):
+        """Cancela comisiones PENDIENTES que no tienen un cobro real detrás:
+        - originales cuya conciliación ya no existe (el cobro se desconcilió
+          antes de que existiera la reversa automática, o se duplicó al
+          reconciliar de nuevo);
+        - originales nacidas de una conciliación que NO es dinero (asiento de
+          diferencia cambiaria, factura contra su nota de crédito).
+        Lo ya pagado no se toca: se deja en el log para revisión manual.
+        Idempotente; la corre la migración 6.0.1 y el cron de auditoría."""
+        Move = self.sudo()
+        candidates = Move.search([
+            ('origin_move_id', '=', False), ('state', 'in', ('draft', 'settled')),
+            ('external_paid', '=', False),
+        ])
+        to_cancel = Move
+        reasons = {}
+        for m in candidates:
+            if not m.partial_reconcile_id:
+                reasons[m.id] = 'su conciliación ya no existe (cobro desconciliado o duplicado)'
+                to_cancel |= m
+                continue
+            try:
+                side = m.partial_reconcile_id._commission_invoice_side()
+            except Exception:  # noqa: BLE001
+                side = True
+            if side is None:
+                reasons[m.id] = 'la conciliación no es un cobro (diferencia cambiaria o nota de crédito contra factura)'
+                to_cancel |= m
+        for m in to_cancel:
+            if m._commission_is_paid():
+                _logger.warning('[COMM] %s (%s, %.2f) sin cobro que la respalde pero YA PAGADA: revisar a mano',
+                                m.name, m.partner_id.display_name, m.amount)
+                continue
+            if m.settlement_id:
+                m.settlement_id.message_post(
+                    body='Movimiento %s retirado: %s.' % (m.name, reasons[m.id]))
+            m.write({'state': 'cancel', 'settlement_id': False})
+            if m.sale_order_id:
+                m.sale_order_id.message_post(
+                    body='Comisión %s de %s por %s cancelada: %s.' % (
+                        m.name, m.partner_id.display_name, m.amount, reasons[m.id]),
+                    message_type='notification')
+            _logger.info('[COMM] cancelada %s (%s, %.2f): %s', m.name, m.partner_id.display_name, m.amount, reasons[m.id])
+        return to_cancel
+
     def _commission_update_info(self, info):
         """Actualiza los campos informativos del cálculo (cobrado con IVA,
         base, externos descontados) sin tocar el monto ni el estado."""
@@ -495,7 +544,16 @@ class CommissionMove(models.Model):
             side = p._commission_invoice_side()
             if not side:
                 continue
-            if side[0]._commission_orders_any():
+            orders = side[0]._commission_orders_any()
+            if not orders:
+                continue
+            if orders.filtered(lambda s: s.commission_rule_ids):
+                result |= p
+                continue
+            # Sin reglas: solo es hallazgo si el vendedor de la orden NO está
+            # excluido de comisiones (las ventas de los dueños no comisionan
+            # a propósito y no deben salir como "sin vendedor").
+            if orders.filtered(lambda s: not (s.user_id and s.user_id.partner_id.commission_excluded)):
                 result |= p
         return result
 
@@ -504,6 +562,10 @@ class CommissionMove(models.Model):
         """Red de seguridad, no paso de proceso: el devengo es en tiempo real
         al conciliar; aquí solo se regenera lo que un error haya dejado fuera
         y se avisa únicamente de lo que siga faltando."""
+        try:
+            self._commission_purge_unbacked()
+        except Exception:  # noqa: BLE001
+            _logger.exception('[COMM] depuración de comisiones sin cobro falló')
         for company in self.env['res.company'].search([]):
             missing = self.with_company(company)._commission_missing_partials(company=company)
             if missing:
