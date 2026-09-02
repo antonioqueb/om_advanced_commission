@@ -7,16 +7,13 @@ class CommissionReportWizard(models.TransientModel):
     _name = 'commission.report.wizard'
     _description = 'Asistente de Reporte de Comisiones'
 
-    date_from = fields.Date(string='Desde', required=True)
-    date_to = fields.Date(string='Hasta', required=True)
-    date_basis = fields.Selection([
-        ('order', 'Por fecha de venta (devengado por orden)'),
-        ('payment', 'Por fecha de cobro (lo que paga la liquidación)'),
-    ], string='Periodo según', required=True, default='order')
+    date_from = fields.Date(string='Cobros desde', required=True)
+    date_to = fields.Date(string='Cobros hasta', required=True)
     partner_ids = fields.Many2many('res.partner', string='Comisionistas',
                                    domain=lambda self: self.env['res.partner']._commission_beneficiary_domain(),
                                    help="Dejar vacío para imprimir todos")
     is_authorizer = fields.Boolean(compute='_compute_is_authorizer')
+    start_date = fields.Date(compute='_compute_start_date', string='Inicio de comisiones')
 
     @api.depends_context('uid')
     def _compute_is_authorizer(self):
@@ -24,11 +21,17 @@ class CommissionReportWizard(models.TransientModel):
         for rec in self:
             rec.is_authorizer = is_auth
 
+    def _compute_start_date(self):
+        start = self.env['commission.move']._commission_start_date()
+        for rec in self:
+            rec.start_date = start
+
     @api.model
     def default_get(self, fields_list):
         res = super().default_get(fields_list)
         today = date.today()
-        res['date_from'] = today.replace(day=1)
+        start = self.env['commission.move']._commission_start_date()
+        res['date_from'] = max(today.replace(day=1), start)
         res['date_to'] = today
         if not self.env.user.has_group('om_advanced_commission.group_commission_manager'):
             res['partner_ids'] = [(6, 0, [self.env.user.partner_id.id])]
@@ -53,7 +56,6 @@ class CommissionReportWizard(models.TransientModel):
         data = {
             'date_from': self.date_from,
             'date_to': self.date_to,
-            'date_basis': self.date_basis,
             'partner_ids': self.partner_ids.ids,
         }
         return self.env.ref('om_advanced_commission.action_report_commission_pdf').report_action(self, data=data)

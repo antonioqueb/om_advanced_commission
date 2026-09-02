@@ -1,4 +1,6 @@
-from odoo import models, fields
+from odoo import models, fields, api
+
+from .sale_order import SERVICE_ROLES_PARAM, SERVICE_ROLES_DEFAULT, COMMISSION_ROLES
 
 
 class ResConfigSettings(models.TransientModel):
@@ -40,3 +42,62 @@ class ResConfigSettings(models.TransientModel):
         config_parameter='om_advanced_commission.external_max_percent',
         default=0.0,
         help='Tope de comisiones externas (embajador/constructora/referidor) como % del subtotal. 0 = sin tope.')
+
+    # ── Inicio de comisiones (corte no retroactivo, por fecha de cobro) ──
+    commission_start_date = fields.Date(
+        string='Inicio de comisiones',
+        config_parameter='om_advanced_commission.start_date',
+        help='Solo comisionan los cobros recibidos a partir de esta fecha. Lo cobrado antes '
+             'se considera pagado fuera del sistema: no aparece pendiente, en el panel ni en '
+             'reportes, y no genera asientos.')
+
+    # ── Quién comisiona sobre SERVICIOS (fletes, manejo de materiales, corte…) ──
+    commission_services_internal = fields.Boolean(
+        string='Vendedores',
+        help='Los vendedores internos comisionan también sobre fletes y servicios.')
+    commission_services_architect = fields.Boolean(
+        string='Embajadores',
+        help='Los embajadores comisionan también sobre fletes y servicios.')
+    commission_services_construction = fields.Boolean(
+        string='Constructoras',
+        help='Las constructoras comisionan también sobre fletes y servicios.')
+    commission_services_referrer = fields.Boolean(
+        string='Referidores',
+        help='Los referidores comisionan también sobre fletes y servicios.')
+
+    _SERVICE_FIELDS = {
+        'internal': 'commission_services_internal',
+        'architect': 'commission_services_architect',
+        'construction': 'commission_services_construction',
+        'referrer': 'commission_services_referrer',
+    }
+
+    def get_values(self):
+        res = super().get_values()
+        roles = self.env['sale.order']._commission_service_roles()
+        for role, fname in self._SERVICE_FIELDS.items():
+            res[fname] = role in roles
+        return res
+
+    def set_values(self):
+        super().set_values()
+        roles = [role for role in COMMISSION_ROLES if self[self._SERVICE_FIELDS[role]]]
+        # Cadena vacía = nadie comisiona sobre servicios (set_param con False
+        # borraría el parámetro y regresaría al default).
+        self.env['ir.config_parameter'].sudo().set_param(SERVICE_ROLES_PARAM, ','.join(roles) or ' ')
+
+    def action_commission_apply_start_date(self):
+        """Cierra lo pendiente con cobro anterior al inicio (idempotente)."""
+        self.ensure_one()
+        self.set_values()
+        closed = self.env['commission.move']._commission_apply_start_date()
+        start = self.env['commission.move']._commission_start_date()
+        return {
+            'type': 'ir.actions.client', 'tag': 'display_notification',
+            'params': {
+                'title': 'Inicio de comisiones',
+                'message': '%d comisión(es) con cobro anterior al %s quedaron como pagadas fuera del sistema.'
+                           % (len(closed), fields.Date.to_string(start)),
+                'type': 'success', 'sticky': False,
+            },
+        }

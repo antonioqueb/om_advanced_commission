@@ -108,6 +108,22 @@ class SaleCommissionRule(models.Model):
             return ((bases.get('untaxed') or 0.0) - (external_total or 0.0)) * pct
         return 0.0
 
+    def _commission_base_value(self, bases, external_total):
+        """Base (en dinero) sobre la que se aplicó el % de esta regla; 0 para
+        monto fijo. Se guarda en el movimiento para que cada monto se explique
+        solo: base × % = comisión."""
+        self.ensure_one()
+        base = self.calculation_base
+        if base == 'amount_untaxed':
+            return bases.get('untaxed') or 0.0
+        if base == 'amount_total':
+            return bases.get('total') or 0.0
+        if base == 'margin':
+            return bases.get('margin') or 0.0
+        if base == 'gross_utility':
+            return (bases.get('untaxed') or 0.0) - (external_total or 0.0)
+        return 0.0
+
     @api.depends('percent', 'fixed_amount', 'calculation_base', 'role_type', 'partner_id',
                  'sale_order_id.amount_untaxed', 'sale_order_id.amount_total',
                  'sale_order_id.order_line.price_subtotal',

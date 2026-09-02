@@ -60,6 +60,13 @@ if targets:
                         Orden confirmada: puedes cambiar el comisionista. Cada cambio queda en el chatter y las
                         comisiones ya cobradas se realinean automáticamente (ajuste por diferencia si ya se pagó).
                     </div>
+                    <div class="text-muted mb-2">
+                        Las comisiones se devengan <b>por cobro</b>, sobre lo cobrado <b>sin IVA</b>.
+                        Los <b>vendedores</b> comisionan sobre toda la orden (bienes y servicios) <b>menos las
+                        comisiones externas</b>; los <b>comisionistas externos</b> (embajador, constructora,
+                        referidor) solo sobre bienes tangibles. Quién comisiona sobre servicios se configura en
+                        Ajustes › Comisiones.
+                    </div>
 
                     <group string="Vendedores">
                         <group>
@@ -88,28 +95,21 @@ if targets:
 
                     <group string="Cobrado y devengado" invisible="commission_move_count == 0">
                         <group>
-                            <field name="commission_paid_base" widget="monetary"
+                            <field name="commission_paid_base" widget="monetary" string="Cobrado sin IVA"
                                    options="{'currency_field': 'company_currency_id'}"/>
                             <field name="commission_total_amount" widget="monetary"
                                    options="{'currency_field': 'company_currency_id'}"/>
                         </group>
                     </group>
 
-                    <separator string="Líneas excluidas de comisión"/>
-                    <field name="order_line" nolabel="1" create="0" delete="0">
-                        <list editable="bottom" create="0" delete="0">
-                            <field name="display_type" column_invisible="True"/>
-                            <field name="currency_id" column_invisible="True"/>
-                            <field name="product_template_id" string="Producto" readonly="1"/>
-                            <field name="price_subtotal" string="Importe" readonly="1"/>
-                            <field name="no_commission" string="Excluir de Comisión" widget="boolean_toggle"/>
-                        </list>
-                    </field>
-
-                    <separator string="Otras Comisiones (solo externos: embajador, constructora, referidor)"/>
-                    <field name="commission_rule_ids" domain="[('role_type', '!=', 'internal')]"
+                    <separator string="Comisionistas externos (embajador, constructora, referidor)"/>
+                    <div class="text-muted mb-1">
+                        Solo contactos externos. Los vendedores van arriba y no se repiten aquí.
+                        Lo que se les pague aquí se <b>descuenta de la base del vendedor</b>.
+                    </div>
+                    <field name="external_commission_rule_ids"
                            context="{'default_role_type': 'architect'}">
-                        <list string="Reglas de Comisión" editable="bottom">
+                        <list string="Comisionistas externos" editable="bottom">
                             <field name="role_type"/>
                             <!-- Solo contactos EXTERNOS: quien tenga usuario interno de Odoo
                                  (vendedor) no aparece; el servidor lo valida además. -->
@@ -120,8 +120,24 @@ if targets:
                             <field name="percent" invisible="calculation_base == 'manual'"/>
                             <field name="fixed_amount" invisible="calculation_base != 'manual'"/>
                             <field name="effective_percent" readonly="1" string="% Efectivo"/>
-                            <field name="estimated_amount" readonly="1" sum="Total Estimado"/>
+                            <field name="estimated_amount" readonly="1" sum="Total Estimado" string="Estimado (orden completa)"/>
                             <field name="currency_id" column_invisible="1"/>
+                        </list>
+                    </field>
+
+                    <separator string="Líneas excluidas de comisión"/>
+                    <div class="text-muted mb-1">
+                        Apaga una línea para que no comisione nadie. Los servicios (fletes, manejo, corte) ya
+                        quedan fuera para los roles que no comisionan sobre servicios, sin necesidad de excluirlos.
+                    </div>
+                    <field name="order_line" nolabel="1" create="0" delete="0">
+                        <list editable="bottom" create="0" delete="0">
+                            <field name="display_type" column_invisible="True"/>
+                            <field name="currency_id" column_invisible="True"/>
+                            <field name="product_template_id" string="Producto" readonly="1"/>
+                            <field name="product_type" string="Tipo" readonly="1"/>
+                            <field name="price_subtotal" string="Importe" readonly="1"/>
+                            <field name="no_commission" string="Excluir de Comisión" widget="boolean_toggle"/>
                         </list>
                     </field>
                 </page>

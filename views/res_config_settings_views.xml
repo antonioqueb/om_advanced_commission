@@ -7,6 +7,59 @@
             <xpath expr="//block[@name='catalog_setting_container']" position="after">
                 <h2>Configuración Comisiones</h2>
                 <div class="row mt16 o_settings_container">
+
+                    <!-- ══ Regla de negocio: base y servicios ══ -->
+                    <div class="col-12 col-lg-6 o_setting_box">
+                        <div class="o_setting_right_pane">
+                            <span class="o_form_label">Quién comisiona sobre servicios</span>
+                            <div class="text-muted mb-2">
+                                Toda comisión se calcula sobre lo <b>cobrado sin IVA</b>. Los roles marcados
+                                comisionan también sobre <b>fletes, manejo de materiales y demás servicios</b>;
+                                los no marcados solo sobre bienes tangibles. Los vendedores además comisionan
+                                sobre su base <b>menos las comisiones externas</b> del mismo cobro.
+                            </div>
+                            <div class="row">
+                                <div class="col-6 col-md-3">
+                                    <field name="commission_services_internal" class="me-1"/>
+                                    <label for="commission_services_internal"/>
+                                </div>
+                                <div class="col-6 col-md-3">
+                                    <field name="commission_services_architect" class="me-1"/>
+                                    <label for="commission_services_architect"/>
+                                </div>
+                                <div class="col-6 col-md-3">
+                                    <field name="commission_services_construction" class="me-1"/>
+                                    <label for="commission_services_construction"/>
+                                </div>
+                                <div class="col-6 col-md-3">
+                                    <field name="commission_services_referrer" class="me-1"/>
+                                    <label for="commission_services_referrer"/>
+                                </div>
+                            </div>
+                            <div class="text-muted mt-1">
+                                Aplica a los cobros que se concilien desde ahora. Una orden ya cobrada se
+                                realinea con <i>Alinear Comisiones</i> (engrane de la orden).
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- ══ Inicio de comisiones ══ -->
+                    <div class="col-12 col-lg-6 o_setting_box">
+                        <div class="o_setting_right_pane">
+                            <label for="commission_start_date"/>
+                            <field name="commission_start_date"/>
+                            <div class="text-muted">
+                                Siempre por <b>fecha de cobro</b>. Lo cobrado antes de esta fecha se considera
+                                pagado fuera del sistema: no queda pendiente ni aparece en panel o reportes,
+                                y no genera asientos contables.
+                            </div>
+                            <button name="action_commission_apply_start_date" type="object"
+                                    string="Cerrar comisiones anteriores al inicio"
+                                    class="btn-link" icon="fa-check-circle"
+                                    confirm="Las comisiones pendientes con cobro anterior a la fecha de inicio quedarán como pagadas fuera del sistema. No se generan asientos. ¿Continuar?"/>
+                        </div>
+                    </div>
+
                     <div class="col-12 col-lg-6 o_setting_box">
                         <div class="o_setting_right_pane">
                             <label for="commission_product_id"/>

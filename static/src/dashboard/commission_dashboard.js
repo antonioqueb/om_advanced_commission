@@ -4,11 +4,10 @@ import { Component, useState, onWillStart } from "@odoo/owl";
 import { registry } from "@web/core/registry";
 import { useService } from "@web/core/utils/hooks";
 
-const BASIS = [
-    { key: "order", label: "Fecha de venta", hint: "Agrupa por la fecha de la orden de venta" },
-    { key: "payment", label: "Fecha de cobro", hint: "Agrupa por la fecha en que el cliente pagó (base de la liquidación)" },
-];
-
+/* Panel de Comisiones.
+ * UN SOLO RELOJ: la fecha de cobro. Ya no existe el corte por fecha de la
+ * orden: las comisiones se pagan sobre lo que el cliente pagó, no sobre lo
+ * que se vendió. Nada anterior al inicio de comisiones (Ajustes) aparece. */
 export class CommissionDashboard extends Component {
     static template = "om_advanced_commission.CommissionDashboard";
     static props = ["*"];
@@ -16,18 +15,17 @@ export class CommissionDashboard extends Component {
     setup() {
         this.orm = useService("orm");
         this.action = useService("action");
-        this.basisOptions = BASIS;
         this.state = useState({
             loading: true,
             month: null,          // 'YYYY-MM'; null = mes actual
             partnerId: false,     // filtro por persona (solo administradores)
-            basis: "order",       // 'order' | 'payment'
             scope: (this.props.action && this.props.action.context && this.props.action.context.commission_panel) === "externals" ? "externals" : "sellers",
             data: null,
             showHelp: false,
             showDetail: false,
             showIncidents: false,
-            showExternalRole: {},
+            showUnapplied: true,
+            showUncommissioned: true,
             // tabla de personas
             sortKey: "total",
             sortDir: -1,
@@ -48,7 +46,7 @@ export class CommissionDashboard extends Component {
                 "commission.move",
                 "get_commission_dashboard_data",
                 [],
-                { month: this.state.month, partner_id: this.state.partnerId || null, basis: this.state.basis, scope: this.state.scope }
+                { month: this.state.month, partner_id: this.state.partnerId || null, scope: this.state.scope }
             );
             this.state.month = this.state.data.month;
             // El vendedor ve su detalle abierto: es su contenido principal.
@@ -62,6 +60,7 @@ export class CommissionDashboard extends Component {
 
     // ── Navegación de periodo ──
     shiftMonth(delta) {
+        if (delta < 0 && this.state.data && this.state.data.is_start_month) return;
         const [y, m] = this.state.month.split("-").map(Number);
         const d = new Date(y, m - 1 + delta, 1);
         this.state.month = d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0");
@@ -69,12 +68,8 @@ export class CommissionDashboard extends Component {
     }
     goToMonth(key) {
         if (key === this.state.month) return;
+        if (this.state.data && key < this.state.data.start_month) return;
         this.state.month = key;
-        this.load();
-    }
-    setBasis(basis) {
-        if (this.state.basis === basis) return;
-        this.state.basis = basis;
         this.load();
     }
 
@@ -91,8 +86,8 @@ export class CommissionDashboard extends Component {
     toggleHelp() { this.state.showHelp = !this.state.showHelp; }
     toggleDetail() { this.state.showDetail = !this.state.showDetail; }
     toggleIncidents() { this.state.showIncidents = !this.state.showIncidents; }
-    toggleRole(role) { this.state.showExternalRole[role] = !this.state.showExternalRole[role]; }
-    isRoleOpen(role) { return !!this.state.showExternalRole[role]; }
+    toggleUnapplied() { this.state.showUnapplied = !this.state.showUnapplied; }
+    toggleUncommissioned() { this.state.showUncommissioned = !this.state.showUncommissioned; }
 
     // ── Tabla de personas: orden, búsqueda, expansión ──
     sortBy(key) {
@@ -126,12 +121,13 @@ export class CommissionDashboard extends Component {
     get stateColumns() {
         const all = this.peopleAll;
         const has = (key) => all.some((p) => Math.abs(p[key] || 0) > 0.005);
-        return { draft: has("draft"), settled: has("settled"), invoiced: has("invoiced"), retained: has("retained") };
+        return { draft: has("draft"), settled: has("settled"), invoiced: has("invoiced"), retained: has("retained"), deducted: has("deducted") };
     }
     get peopleTotals() {
-        const t = { total: 0, base: 0, orders: 0, count: 0, draft: 0, settled: 0, invoiced: 0, retained: 0 };
+        const t = { total: 0, base: 0, gross: 0, calc_base: 0, deducted: 0, orders: 0, count: 0, draft: 0, settled: 0, invoiced: 0, retained: 0 };
         for (const p of this.people) { for (const k of Object.keys(t)) t[k] += p[k] || 0; }
-        t.pct = t.base ? (t.total / t.base) * 100 : 0;
+        const denom = t.calc_base || t.base;
+        t.pct = denom ? (t.total / denom) * 100 : 0;
         t.avg_order = t.orders ? t.total / t.orders : 0;
         return t;
     }
@@ -150,11 +146,12 @@ export class CommissionDashboard extends Component {
     }
     fmtPct(v) { return (v || 0).toFixed(2) + "%"; }
 
-    // ── Variación vs mes anterior (misma base) ──
+    // ── Variación vs mes anterior ──
     get prevDelta() {
         const t = this.state.data.trend || [];
         const idx = t.findIndex((x) => x.current);
         if (idx <= 0) return null;
+        if (t[idx - 1].before_start) return null;
         const cur = t[idx].total, prev = t[idx - 1].total;
         if (!prev) return cur ? { pct: 100, up: true, prevLabel: t[idx - 1].label } : null;
         const pct = ((cur - prev) / Math.abs(prev)) * 100;
@@ -175,16 +172,16 @@ export class CommissionDashboard extends Component {
     get detailRows() { return this.detailRowsAll.slice(0, this.state.detailLimit); }
     showMoreDetail() { this.state.detailLimit += 100; }
     detailCount(st) { return this.state.data.rows.filter((r) => st === "all" || r.state === st).length; }
+    get detailHasDeducted() { return this.state.data.rows.some((r) => Math.abs(r.deducted || 0) > 0.005); }
 
     // ── Exportar CSV (tabla de personas) ──
     exportCsv() {
-        const sym = "";
-        const head = ["Nombre", "Tipo", "Órdenes", "Movimientos", "Base cobrada", "Comisión", "% efectivo", "Promedio por orden", "Pendiente", "En liquidación", "Pagado", "Retenido"];
+        const head = ["Nombre", "Tipo", "Órdenes", "Movimientos", "Cobrado con IVA", "Cobrado sin IVA", "Externos descontados", "Base de cálculo", "Comisión", "% efectivo", "Promedio por orden", "Pendiente", "En liquidación", "Pagado", "Retenido"];
         const lines = [head.join(",")];
         for (const p of this.people) {
-            lines.push([`"${(p.name || "").replace(/"/g, '""')}"`, p.role_label || "", p.orders, p.count, p.base, p.total, p.pct, p.avg_order, p.draft, p.settled, p.invoiced, p.retained].join(","));
+            lines.push([`"${(p.name || "").replace(/"/g, '""')}"`, p.role_label || "", p.orders, p.count, p.gross, p.base, p.deducted, p.calc_base, p.total, p.pct, p.avg_order, p.draft, p.settled, p.invoiced, p.retained].join(","));
         }
-        const blob = new Blob(["\ufeff" + lines.join("\n")], { type: "text/csv;charset=utf-8" });
+        const blob = new Blob(["﻿" + lines.join("\n")], { type: "text/csv;charset=utf-8" });
         const a = document.createElement("a");
         a.href = URL.createObjectURL(blob);
         a.download = `comisiones_${this.isExternals ? "externos" : "vendedores"}_${this.state.month}.csv`;
@@ -217,9 +214,9 @@ export class CommissionDashboard extends Component {
     get isExternals() {
         return this.state.scope === "externals";
     }
-    get basisHint() {
-        const b = BASIS.find((x) => x.key === this.state.basis);
-        return b ? b.hint : "";
+    get hasNoCommission() {
+        const d = this.state.data;
+        return d && d.is_authorizer && !this.isExternals && ((d.unapplied && d.unapplied.count) || (d.uncommissioned && d.uncommissioned.count));
     }
 
     // ── Derivados ──
@@ -238,24 +235,6 @@ export class CommissionDashboard extends Component {
         const pct = (Math.abs(item.total) / this.trendMax) * 100;
         return "height:" + Math.max(pct, 4) + "%";
     }
-    get sellerMax() {
-        const s = this.state.data.sellers || [];
-        return Math.max(...s.map((x) => Math.abs(x.total)), 1);
-    }
-    sellerBar(s) {
-        return "width:" + Math.max((Math.abs(s.total) / this.sellerMax) * 100, 0) + "%";
-    }
-    sellerShare(s) {
-        const tot = this.state.data.totals.sellers || 0;
-        return tot ? ((s.total / tot) * 100).toFixed(1) + "%" : "0.0%";
-    }
-    get sellersWithMoves() {
-        return (this.state.data.sellers || []).filter((s) => s.count > 0).length;
-    }
-    memberBar(member, role) {
-        const max = Math.max(...role.members.map((m) => Math.abs(m.total)), 1);
-        return "width:" + (Math.abs(member.total) / max) * 100 + "%";
-    }
     get orderCount() {
         return new Set(this.state.data.rows.filter((r) => r.order_id).map((r) => r.order_id)).size;
     }
@@ -266,6 +245,15 @@ export class CommissionDashboard extends Component {
         if (!row.order_id) return;
         this.action.doAction({ type: "ir.actions.act_window", res_model: "sale.order", res_id: row.order_id, views: [[false, "form"]], target: "current" });
     }
+    openOrderId(id) {
+        if (!id) return;
+        this.action.doAction({ type: "ir.actions.act_window", res_model: "sale.order", res_id: id, views: [[false, "form"]], target: "current" });
+    }
+    openPayment(id) {
+        if (!id) return;
+        this.action.doAction({ type: "ir.actions.act_window", res_model: "account.payment", res_id: id, views: [[false, "form"]], target: "current" });
+    }
+    openAudit() { this.action.doAction("om_advanced_commission.action_commission_audit"); }
     openIncidents() { this.action.doAction("om_advanced_commission.action_commission_incident"); }
     openIncident(id) {
         this.action.doAction({ type: "ir.actions.act_window", res_model: "commission.incident", res_id: id, views: [[false, "form"]], target: "current" });

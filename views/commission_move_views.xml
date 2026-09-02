@@ -9,8 +9,8 @@
                     <button name="action_mark_paid_outside" type="object" string="Marcar como cobrada"
                             groups="om_advanced_commission.group_commission_manager"/>
                 </header>
-                <field name="date"/>
-                <field name="payment_date" optional="show"/>
+                <field name="payment_date"/>
+                <field name="date" optional="hide" string="Fecha registro"/>
                 <field name="name"/>
                 <field name="partner_id"/>
                 <field name="rule_role" optional="show"/>
@@ -19,12 +19,17 @@
                 <field name="project_id" optional="show"/>
                 <field name="customer_id" optional="show"/>
                 <field name="invoice_name" optional="show"/>
-                <field name="base_amount_paid" sum="Base" optional="show"/>
+                <field name="amount_paid_total" sum="Cobrado c/IVA" optional="show"/>
+                <field name="base_amount_paid" sum="Sin IVA" optional="show"/>
+                <field name="external_deducted" sum="Externos" optional="hide"/>
+                <field name="commission_base" sum="Base" optional="show"/>
+                <field name="rule_percent" optional="show" string="%"/>
                 <field name="amount" sum="Total"/>
                 <field name="retention_factor" optional="hide"/>
                 <field name="origin_move_id" optional="hide"/>
                 <field name="adjustment_kind" optional="hide"/>
                 <field name="external_paid" string="Cobrada fuera" optional="show"/>
+                <field name="pre_start" string="Anterior al inicio" optional="hide"/>
                 <field name="settlement_id" optional="hide" groups="om_advanced_commission.group_commission_manager"/>
                 <field name="currency_id" column_invisible="1"/>
                 <field name="state" widget="badge" decoration-success="state == 'invoiced'"
@@ -67,14 +72,20 @@
                             <field name="invoice_id" readonly="1" groups="account.group_account_invoice"/>
                             <field name="payment_id" readonly="1" groups="account.group_account_invoice"/>
                             <field name="partial_reconcile_id" readonly="1" groups="account.group_account_user"/>
-                            <field name="date"/>
+                            <field name="payment_date" readonly="1"/>
+                            <field name="date" string="Fecha registro"/>
                             <field name="company_id" readonly="1"/>
                         </group>
-                        <group string="Monto">
+                        <group string="Cálculo (cobrado → base → comisión)">
                             <field name="currency_id" invisible="1"/>
+                            <field name="amount_paid_total" readonly="1"/>
                             <field name="base_amount_paid" readonly="1"/>
+                            <field name="includes_services" readonly="1"/>
+                            <field name="external_deducted" readonly="1" invisible="not external_deducted"/>
+                            <field name="commission_base" readonly="1"/>
                             <field name="amount" readonly="state != 'draft'"/>
                             <field name="is_refund" readonly="1"/>
+                            <field name="pre_start" readonly="1" invisible="not pre_start"/>
                             <field name="settlement_id" readonly="1" groups="om_advanced_commission.group_commission_manager"/>
                         </group>
                     </group>
@@ -112,6 +123,9 @@
                 <field name="sale_order_id"/>
                 <field name="invoice_name"/>
                 <filter name="not_cancel" string="Vigentes" domain="[('state', '!=', 'cancel')]"/>
+                <filter name="since_start" string="Desde el inicio de comisiones" domain="[('pre_start', '=', False)]"/>
+                <filter name="pre_start" string="Anteriores al inicio (pagadas fuera)" domain="[('pre_start', '=', True)]"/>
+                <separator/>
                 <filter name="draft" string="Pendientes" domain="[('state', '=', 'draft')]"/>
                 <filter name="settled" string="En liquidación" domain="[('state', '=', 'settled')]"/>
                 <filter name="invoiced" string="Pagados" domain="[('state', '=', 'invoiced')]"/>
@@ -122,7 +136,7 @@
                 <filter name="refunds" string="Devoluciones" domain="[('is_refund', '=', True)]"/>
                 <filter name="group_partner" string="Comisionista" context="{'group_by': 'partner_id'}"/>
                 <filter name="group_order" string="Orden" context="{'group_by': 'sale_order_id'}"/>
-                <filter name="group_payment_date" string="Fecha del pago" context="{'group_by': 'payment_date'}"/>
+                <filter name="group_payment_date" string="Fecha de cobro" context="{'group_by': 'payment_date'}"/>
                 <filter name="group_state" string="Estado" context="{'group_by': 'state'}"/>
                 <filter name="group_company" string="Compañía" context="{'group_by': 'company_id'}" groups="base.group_multi_company"/>
             </search>
@@ -133,6 +147,7 @@
         <field name="name">Análisis de Movimientos</field>
         <field name="res_model">commission.move</field>
         <field name="view_mode">list,form,pivot</field>
+        <field name="context">{'search_default_since_start': 1}</field>
     </record>
 
     <!-- Estado de cuenta por comisionista: consulta directa, en tiempo real,
@@ -154,7 +169,7 @@
         <field name="name">Estado de Cuenta por Comisionista</field>
         <field name="res_model">commission.move</field>
         <field name="view_mode">list,pivot,form</field>
-        <field name="context">{'search_default_group_partner': 1, 'search_default_not_cancel': 1}</field>
+        <field name="context">{'search_default_group_partner': 1, 'search_default_not_cancel': 1, 'search_default_since_start': 1}</field>
         <field name="help" type="html">
             <p class="o_view_nocontent_smiling_face">Sin comisiones todavía</p>
             <p>Aparecen aquí en cuanto se concilia un cobro. No hace falta liquidar para consultarlas.</p>

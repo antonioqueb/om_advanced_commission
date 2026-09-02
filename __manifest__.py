@@ -1,8 +1,10 @@
 {
     'name': 'Gestión Avanzada de Comisiones (Cash Basis & Proyectos)',
-    'version': '19.0.5.11.0',
+    'version': '19.0.6.0.0',
     'category': 'Sales/Commissions',
-    'summary': 'Motor de comisiones multi-agente sobre cobros: cálculo por línea de factura, retención por autorización, reversas y liquidaciones.',
+    'summary': 'Motor de comisiones multi-agente sobre cobros: cálculo por línea de factura sin IVA, '
+               'bienes vs servicios por rol, fecha de cobro única, inicio no retroactivo, '
+               'retención por autorización, reversas y liquidaciones.',
     'author': 'Alphaqueb Consulting',
     # stock_lot_dimensions: sistema de diseño global de reportes SOM (som_report_style)
     'depends': ['sale_management', 'account', 'purchase', 'project', 'stock_lot_dimensions'],
@@ -12,6 +14,7 @@
         'data/sequence_data.xml',
         'data/cron_data.xml',
         'data/multi_company_data.xml',
+        'data/commission_params.xml',
         'views/res_config_settings_views.xml',
         'views/sale_order_views.xml',
         'views/res_partner_views.xml',

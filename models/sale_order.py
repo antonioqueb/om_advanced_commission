@@ -10,11 +10,25 @@ SELLER_MAX_PCT = 2.5
 SELLER_FIELDS = ('seller1_id', 'seller2_id', 'seller3_id',
                  'seller1_percent', 'seller2_percent', 'seller3_percent')
 
+# Roles que comisionan también sobre SERVICIOS (fletes, manejo de materiales,
+# corte, etc.). Se configura en Ajustes › Comisiones; por defecto solo los
+# vendedores internos. Los demás comisionan únicamente sobre bienes tangibles.
+SERVICE_ROLES_PARAM = 'om_advanced_commission.service_roles'
+SERVICE_ROLES_DEFAULT = 'internal'
+COMMISSION_ROLES = ('internal', 'architect', 'construction', 'referrer')
+
 
 class SaleOrder(models.Model):
     _inherit = 'sale.order'
 
     commission_rule_ids = fields.One2many('sale.commission.rule', 'sale_order_id', string='Reglas de Comisión')
+    # Solo comisionistas EXTERNOS: es lo que se captura en "Otras comisiones".
+    # Un dominio en la vista NO filtra lo que muestra un one2many (Odoo 17+),
+    # por eso las reglas internas de Vendedor 1/2/3 aparecían también abajo y
+    # parecía que el vendedor comisionaba dos veces.
+    external_commission_rule_ids = fields.One2many(
+        'sale.commission.rule', 'sale_order_id', string='Comisionistas externos',
+        domain=[('role_type', '!=', 'internal')])
     x_project_id = fields.Many2one('project.project', string='Proyecto (Job Name)')
 
     # Vendedores internos = SOLO contactos que son usuarios de Odoo con
@@ -201,7 +215,8 @@ class SaleOrder(models.Model):
         if seller_changed:
             self.with_context(commission_no_refresh=True)._sync_seller_rules()
         lines_touched = 'order_line' in vals and 'no_commission' in repr(vals.get('order_line'))
-        if (seller_changed or 'commission_rule_ids' in vals or lines_touched) \
+        rules_touched = 'commission_rule_ids' in vals or 'external_commission_rule_ids' in vals
+        if (seller_changed or rules_touched or lines_touched) \
                 and not self.env.context.get('commission_no_refresh'):
             self._commission_refresh()
         return res
@@ -301,6 +316,8 @@ class SaleOrder(models.Model):
 
     @api.depends('commission_rule_ids.percent', 'commission_rule_ids.fixed_amount',
                  'commission_rule_ids.calculation_base', 'commission_rule_ids.role_type',
+                 'external_commission_rule_ids.percent', 'external_commission_rule_ids.fixed_amount',
+                 'external_commission_rule_ids.calculation_base', 'external_commission_rule_ids.role_type',
                  'order_line.price_subtotal', 'order_line.price_total', 'order_line.no_commission')
     def _compute_total_external_percent(self):
         for so in self:
@@ -381,7 +398,34 @@ class SaleOrder(models.Model):
     def _commission_full_order_lines(self):
         """paid_lines al 100% de la orden, en moneda de la orden."""
         self.ensure_one()
-        return [(l, l.price_subtotal, l.price_total) for l in self._commission_product_lines()]
+        return [(l, l.price_subtotal, l.price_total, l.product_id)
+                for l in self._commission_product_lines()]
+
+    # ------------------------------------------------------------------
+    # Bienes vs servicios (regla transversal configurable en Ajustes)
+    # ------------------------------------------------------------------
+    @api.model
+    def _commission_service_roles(self):
+        """Roles que comisionan sobre servicios. Sin configurar = solo los
+        vendedores internos; cadena vacía = nadie."""
+        raw = self.env['ir.config_parameter'].sudo().get_param(SERVICE_ROLES_PARAM)
+        if raw is None or raw is False:
+            raw = SERVICE_ROLES_DEFAULT
+        return {r.strip() for r in str(raw).split(',') if r.strip() in COMMISSION_ROLES}
+
+    @api.model
+    def _commission_pl_is_service(self, pl):
+        """¿La línea cobrada es un SERVICIO (flete, manejo de materiales,
+        corte, etc.)? Los descuentos (importe negativo) restan a todos por
+        igual, así que jamás se tratan como servicio.
+        pl = (sale_line | None, base_sin_iva, base_con_iva[, product])."""
+        sale_line = pl[0]
+        product = pl[3] if len(pl) > 3 and pl[3] else (sale_line.product_id if sale_line else None)
+        if not product:
+            return False
+        if (pl[1] or 0.0) < 0:
+            return False
+        return product.type == 'service'
 
     @api.model
     def _commission_line_margin_ratio(self, line):
@@ -410,29 +454,46 @@ class SaleOrder(models.Model):
         except Exception:  # jamás tumbar un cálculo de comisión por el costo
             return 0.0
 
-    def _commission_amounts_for_payment(self, paid_lines, to_currency, apply_factors=True, date=None):
-        """Monto por regla para un conjunto de líneas cobradas.
+    def _commission_amounts_detail(self, paid_lines, to_currency, apply_factors=True, date=None):
+        """Motor ÚNICO de la fórmula. Devuelve {regla: {'amount', 'base',
+        'services', 'external_deducted'}} para un conjunto de líneas cobradas.
 
-        paid_lines: lista de (sale_line | None, base_sin_iva, base_con_iva),
-        montos ya en `to_currency`. Devuelve {regla: monto (positivo)}.
-        Es el ÚNICO lugar donde se aplica la fórmula: el estimado de la orden
-        y el devengo por conciliación pasan por aquí."""
+        paid_lines: lista de (sale_line | None, base_sin_iva, base_con_iva
+        [, product]), montos ya en `to_currency`.
+
+        Regla de negocio (configurable en Ajustes › Comisiones):
+        * Todo se calcula SIN IVA (base = subtotal cobrado).
+        * Los roles marcados "comisionan sobre servicios" (por defecto solo
+          los vendedores) usan bienes + servicios; el resto (embajadores,
+          constructoras, referidores) SOLO bienes tangibles.
+        * Los vendedores internos (utilidad bruta) comisionan sobre su base
+          MENOS todas las comisiones externas de ese cobro: 120 mil cobrados
+          con 20 mil de embajador ⇒ el vendedor comisiona sobre 100 mil.
+        El estimado de la orden y el devengo por conciliación pasan por aquí."""
         self.ensure_one()
         company = self.company_id
         date = date or self.date_order or fields.Date.today()
         commissionable = [pl for pl in paid_lines if not (pl[0] and pl[0].no_commission)]
-        bases = {
-            'untaxed': sum(pl[1] for pl in commissionable),
-            'total': sum(pl[2] for pl in commissionable),
-            'margin': sum(pl[1] * self._commission_line_margin_ratio(pl[0]) for pl in commissionable),
-        }
+        goods_only = [pl for pl in commissionable if not self._commission_pl_is_service(pl)]
+
+        def make_bases(lines):
+            return {
+                'untaxed': sum(pl[1] for pl in lines),
+                'total': sum(pl[2] for pl in lines),
+                'margin': sum(pl[1] * self._commission_line_margin_ratio(pl[0]) for pl in lines),
+            }
+
+        bases_all = make_bases(commissionable)
+        bases_goods = make_bases(goods_only)
         # Monto fijo: se prorratea según la parte de la orden que cubre este cobro.
         all_untaxed = sum(pl[1] for pl in paid_lines)
         order_untaxed = self.amount_untaxed or 0.0
         if to_currency and self.currency_id and to_currency != self.currency_id:
             order_untaxed = self.currency_id._convert(order_untaxed, to_currency, company, date)
-        bases['manual_share'] = (all_untaxed / order_untaxed) if order_untaxed else 0.0
+        share = (all_untaxed / order_untaxed) if order_untaxed else 0.0
+        bases_all['manual_share'] = bases_goods['manual_share'] = share
 
+        service_roles = self._commission_service_roles()
         seller_factor, ext_factor = self._commission_factors() if apply_factors else (1.0, 1.0)
 
         def fixed_in(rule):
@@ -440,6 +501,9 @@ class SaleOrder(models.Model):
             if to_currency and self.currency_id and to_currency != self.currency_id:
                 amt = self.currency_id._convert(amt, to_currency, company, date)
             return amt
+
+        def bases_for(rule):
+            return bases_all if rule.role_type in service_roles else bases_goods
 
         result = {}
         external_total = 0.0
@@ -449,12 +513,30 @@ class SaleOrder(models.Model):
         # tuvieran devengado (la exclusión aplica solo hacia adelante).
         rules = self.commission_rule_ids.filtered(lambda r: not r.partner_id.commission_excluded)
         for rule in rules.filtered(lambda r: r.role_type != 'internal'):
+            bases = bases_for(rule)
             amt = rule._commission_amount(bases, fixed_in(rule), 0.0) * ext_factor
-            result[rule] = amt
+            result[rule] = {
+                'amount': amt,
+                'base': rule._commission_base_value(bases, 0.0),
+                'services': rule.role_type in service_roles,
+                'external_deducted': 0.0,
+            }
             external_total += amt
         for rule in rules.filtered(lambda r: r.role_type == 'internal'):
-            result[rule] = rule._commission_amount(bases, fixed_in(rule), external_total) * seller_factor
+            bases = bases_for(rule)
+            deducted = external_total if rule.calculation_base == 'gross_utility' else 0.0
+            result[rule] = {
+                'amount': rule._commission_amount(bases, fixed_in(rule), external_total) * seller_factor,
+                'base': rule._commission_base_value(bases, external_total),
+                'services': rule.role_type in service_roles,
+                'external_deducted': deducted,
+            }
         return result
+
+    def _commission_amounts_for_payment(self, paid_lines, to_currency, apply_factors=True, date=None):
+        """{regla: monto}. Atajo sobre `_commission_amounts_detail`."""
+        detail = self._commission_amounts_detail(paid_lines, to_currency, apply_factors, date)
+        return {rule: d['amount'] for rule, d in detail.items()}
 
     # ------------------------------------------------------------------
     # Autorización

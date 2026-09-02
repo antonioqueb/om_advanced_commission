@@ -47,15 +47,16 @@
                         <table class="som-table" style="margin-bottom: 30px;">
                             <thead>
                                 <tr>
-                                    <th class="text-center" style="width: 8%;">FOLIO</th>
-                                    <th class="text-center" style="width: 13%;">FECHA FACTURA</th>
-                                    <th style="width: 14%;">RAZÓN SOCIAL</th>
-                                    <th style="width: 10%;">JOB NAME</th>
-                                    <th class="text-center" style="width: 11%;">FECHA PAGO</th>
+                                    <th class="text-center" style="width: 7%;">FOLIO</th>
+                                    <th style="width: 13%;">RAZÓN SOCIAL</th>
+                                    <th style="width: 9%;">JOB NAME</th>
+                                    <th class="text-center" style="width: 10%;">FECHA COBRO</th>
                                     <th class="text-center" style="width: 9%;">FACTURA</th>
-                                    <th class="som-num" style="width: 12%;">$ FACT. (SIN IVA)</th>
-                                    <th class="text-center" style="width: 10%;">% COMISIÓN</th>
-                                    <th class="som-num" style="width: 14%;">MONTO COMISIÓN</th>
+                                    <th class="som-num" style="width: 11%;">COBRADO C/IVA</th>
+                                    <th class="som-num" style="width: 11%;">COBRADO S/IVA</th>
+                                    <th class="som-num" style="width: 11%;">BASE CÁLCULO</th>
+                                    <th class="text-center" style="width: 7%;">%</th>
+                                    <th class="som-num" style="width: 12%;">COMISIÓN</th>
                                 </tr>
                             </thead>
                             
@@ -64,10 +65,6 @@
                                 <tr t-foreach="group['moves']" t-as="move">
                                     <td class="text-center align-middle">
                                         <span t-field="move.sale_order_id.name" style="font-weight: 500;"/>
-                                    </td>
-                                    <td class="text-center align-middle som-muted">
-                                        <span t-if="acct[move.id]['invoice_date']" t-esc="acct[move.id]['invoice_date']"/>
-                                        <span t-else="">-</span>
                                     </td>
                                     <td class="align-middle">
                                         <span t-esc="move.sale_order_id.x_partner_display"
@@ -78,8 +75,7 @@
                                         <span t-else="">-</span>
                                     </td>
                                     <td class="text-center align-middle">
-                                        <span t-if="acct[move.id]['payment_date']" t-esc="acct[move.id]['payment_date']"/>
-                                        <span t-else="" t-field="move.date" t-options='{"widget": "date", "format": "dd MMM yyyy"}'/>
+                                        <span t-esc="acct[move.id]['payment_date']"/>
                                     </td>
                                     <td class="text-center align-middle">
                                         <t t-if="acct[move.id]['invoice_name']">
@@ -87,14 +83,30 @@
                                         </t>
                                         <t t-else="">Varios</t>
                                     </td>
+                                    <td class="som-num align-middle som-muted">
+                                        <span t-if="move.amount_paid_total" t-field="move.amount_paid_total"
+                                              t-options='{"widget": "monetary", "display_currency": move.currency_id}'/>
+                                        <span t-else="">-</span>
+                                    </td>
                                     <td class="som-num align-middle">
                                         <span t-field="move.base_amount_paid"
                                               t-options='{"widget": "monetary", "display_currency": move.currency_id}'/>
+                                    </td>
+                                    <td class="som-num align-middle">
+                                        <span t-if="move.commission_base" t-field="move.commission_base"
+                                              t-options='{"widget": "monetary", "display_currency": move.currency_id}'/>
+                                        <span t-else="">-</span>
+                                        <div t-if="move.external_deducted" class="som-muted" style="font-size: 8px;">
+                                            (menos externos <span t-field="move.external_deducted" t-options='{"widget": "monetary", "display_currency": move.currency_id}'/>)
+                                        </div>
                                     </td>
                                     <!-- Porcentaje limpio (sin fondo) -->
                                     <td class="text-center align-middle">
                                         <t t-if="move.origin_move_id">
                                             <span t-esc="'Reversa' if move.adjustment_kind == 'reversal' else 'Ajuste'" style="font-weight: bold;"/>
+                                        </t>
+                                        <t t-elif="move.commission_base">
+                                            <span t-esc="abs(round((move.amount / move.commission_base) * 100, 2))" style="font-weight: bold;"/>%
                                         </t>
                                         <t t-elif="move.base_amount_paid and move.base_amount_paid != 0">
                                             <span t-esc="abs(round((move.amount / move.base_amount_paid) * 100, 2))" style="font-weight: bold;"/>%
@@ -111,11 +123,19 @@
                             <!-- PIE DE TOTALES -->
                             <tfoot>
                                 <tr style="background-color: #f2f2f2; border-top: 2px solid #2f2f2f;">
-                                    <td colspan="6" class="text-end align-middle som-upper" style="padding: 5px 6px; font-weight: 800; color: #555;">
+                                    <td colspan="5" class="text-end align-middle som-upper" style="padding: 5px 6px; font-weight: 800; color: #555;">
                                         Totales <span t-esc="group['partner'].name"/>:
+                                    </td>
+                                    <td class="som-num align-middle som-muted" style="padding: 5px 6px; font-weight: 700;">
+                                        <span t-esc="group['total_gross']"
+                                              t-options='{"widget": "monetary", "display_currency": group["currency"]}'/>
                                     </td>
                                     <td class="som-num align-middle" style="padding: 5px 6px; font-weight: 800;">
                                         <span t-esc="group['total_base']"
+                                              t-options='{"widget": "monetary", "display_currency": group["currency"]}'/>
+                                    </td>
+                                    <td class="som-num align-middle" style="padding: 5px 6px; font-weight: 800;">
+                                        <span t-esc="group['total_calc_base']"
                                               t-options='{"widget": "monetary", "display_currency": group["currency"]}'/>
                                     </td>
                                     <td class="align-middle"></td>
@@ -125,7 +145,7 @@
                                     </td>
                                 </tr>
                                 <tr t-if="group['total_retained']" style="background-color: #fff8e6;">
-                                    <td colspan="8" class="text-end align-middle" style="padding: 4px 6px; font-size: 9.5px; color: #9a6a06;">
+                                    <td colspan="9" class="text-end align-middle" style="padding: 4px 6px; font-size: 9.5px; color: #9a6a06;">
                                         Excedente retenido por autorización pendiente (se libera al aprobarse):
                                     </td>
                                     <td class="som-num align-middle" style="padding: 4px 6px; font-size: 9.5px; color: #9a6a06; font-weight: 700;">
@@ -146,7 +166,7 @@
                     <div class="row" style="margin-top: 50px; page-break-inside: avoid;">
                         <div class="col-12">
                             <div style="border-top: 1px solid #ccc; padding-top: 10px; font-size: 9px; color: #666; text-align: justify;">
-                                <strong>IMPORTANTE:</strong> Las comisiones detalladas en el presente reporte han sido calculadas sobre la base de los pagos efectivamente recibidos.
+                                <strong>IMPORTANTE:</strong> Las comisiones detalladas en el presente reporte han sido calculadas sobre la base de los pagos efectivamente recibidos, <strong>sin IVA</strong>. Los vendedores comisionan sobre bienes y servicios menos las comisiones externas del mismo cobro; los comisionistas externos únicamente sobre bienes tangibles.
                                 Se hace constar que aquellas comisiones previamente liquidadas que sean objeto de <strong>devoluciones, cancelaciones o notas de crédito</strong> posteriores
                                 por parte del cliente, resultarán en un ajuste negativo (deducción) automático en el siguiente periodo de cálculo y liquidación de comisiones del agente correspondiente.
                             </div>

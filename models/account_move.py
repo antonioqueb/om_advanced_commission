@@ -27,13 +27,18 @@ class AccountMove(models.Model):
                               ('company_id', '=', self.company_id.id)], limit=1)
         return SO.browse()
 
-    def _commission_orders(self):
-        """Órdenes (con reglas) a las que esta factura de cliente comisiona."""
+    def _commission_orders_any(self):
+        """Órdenes de venta ligadas a esta factura, tengan o no reglas."""
         self.ensure_one()
         sos = self.invoice_line_ids.mapped('sale_line_ids.order_id')
         if not sos:
             sos = self._commission_fallback_order()
-        return sos.filtered(lambda s: s.commission_rule_ids)
+        return sos
+
+    def _commission_orders(self):
+        """Órdenes (con reglas) a las que esta factura de cliente comisiona."""
+        self.ensure_one()
+        return self._commission_orders_any().filtered(lambda s: s.commission_rule_ids)
 
 
 class AccountPartialReconcile(models.Model):
@@ -181,7 +186,8 @@ class AccountPartialReconcile(models.Model):
                 continue
             base_untaxed = abs(line.balance) * ratio * mxn_factor
             tax_factor = (line.price_total / line.price_subtotal) if line.price_subtotal else 1.0
-            by_so.setdefault(so, []).append((sale_line or None, base_untaxed, base_untaxed * tax_factor, line))
+            by_so.setdefault(so, []).append(
+                (sale_line or None, base_untaxed, base_untaxed * tax_factor, line.product_id, line))
 
         if not by_so:
             _logger.debug("[COMM] partial %s: factura %s sin líneas ligadas a ventas", self.id, invoice.name)
@@ -189,18 +195,25 @@ class AccountPartialReconcile(models.Model):
 
         payment_rec = self.env['account.payment'].search([('move_id', '=', counterpart.id)], limit=1)
         sign = -1 if is_refund else 1
+        # FECHA DE COBRO: la del asiento del dinero (pago o línea bancaria),
+        # nunca max_date del partial (que es la fecha de la factura cuando el
+        # cliente pagó por anticipado o la factura se capturó después).
+        cash_date = (payment_rec.date if payment_rec else False) or other_line.date \
+            or self.max_date or fields.Date.context_today(self)
 
         for so, entries in by_so.items():
             if not so.commission_rule_ids:
                 continue
-            paid_lines = [(sl, bu, bt) for (sl, bu, bt, _l) in entries]
-            amounts = so._commission_amounts_for_payment(
+            paid_lines = [(sl, bu, bt, prod) for (sl, bu, bt, prod, _l) in entries]
+            detail = so._commission_amounts_detail(
                 paid_lines, ccur, apply_factors=True, date=invoice.invoice_date or invoice.date)
-            paid_base = sum(bu for (sl, bu, _bt) in paid_lines if not (sl and sl.no_commission))
-            first_line = entries[0][3]
+            paid_base = sum(bu for (sl, bu, _bt, _p) in paid_lines if not (sl and sl.no_commission))
+            paid_total = sum(bt for (_sl, _bu, bt, _p) in paid_lines)
+            first_line = entries[0][4]
             seller_factor, ext_factor = so._commission_factors()
 
-            for rule, amount in amounts.items():
+            for rule, d in detail.items():
+                amount = d['amount']
                 commission_amount = ccur.round(amount * sign)
                 factor = seller_factor if rule.role_type == 'internal' else ext_factor
                 snapshot = {
@@ -210,6 +223,12 @@ class AccountPartialReconcile(models.Model):
                     'rule_percent': rule.percent if rule.calculation_base != 'manual' else 0.0,
                     'rule_fixed_amount': rule.fixed_amount if rule.calculation_base == 'manual' else 0.0,
                     'retention_factor': factor,
+                }
+                info = {
+                    'amount_paid_total': ccur.round(paid_total * sign),
+                    'commission_base': ccur.round(d['base'] * sign),
+                    'external_deducted': ccur.round(d['external_deducted'] * sign),
+                    'includes_services': d['services'],
                 }
                 # Ya devengado para esta regla, o movimiento LEGADO (sin
                 # snapshot de regla) de la misma conciliación: no duplicar.
@@ -225,10 +244,11 @@ class AccountPartialReconcile(models.Model):
                     if refresh:
                         originals[0]._commission_apply_expected(
                             commission_amount, snapshot, 'reglas o autorización actualizadas')
+                        originals[0]._commission_update_info(info)
                     continue
                 if abs(commission_amount) < 0.005:
                     continue
-                CommissionMove.create({
+                move = CommissionMove.create({
                     'partner_id': rule.partner_id.id,
                     'sale_order_id': so.id,
                     'invoice_id': invoice.id,
@@ -241,12 +261,16 @@ class AccountPartialReconcile(models.Model):
                     'currency_id': ccur.id,
                     'is_refund': is_refund,
                     'state': 'draft',
-                    'date': self.max_date or fields.Date.context_today(self),
+                    'date': cash_date,
                     'name': f"Cmsn: {invoice.name} / {so.name} ({round(ratio * 100, 1)}%)",
                     **snapshot,
+                    **info,
                 })
-                _logger.info("[COMM] partial %s → %s %s: %.2f (factor %.3f)",
-                             self.id, so.name, rule.partner_id.display_name, commission_amount, factor)
+                # Cobros anteriores al inicio de comisiones: ya se pagaron
+                # fuera del sistema; nacen cerrados y no entran a liquidación.
+                move._commission_close_before_start()
+                _logger.info("[COMM] partial %s → %s %s: %.2f (factor %.3f, cobro %s)",
+                             self.id, so.name, rule.partner_id.display_name, commission_amount, factor, cash_date)
 
     # ------------------------------------------------------------------
     # Observabilidad: el error deja de ser silencioso

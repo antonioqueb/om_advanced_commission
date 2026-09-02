@@ -5,20 +5,25 @@
         <field name="arch" type="xml">
             <form string="Reporte de Comisiones">
                 <field name="is_authorizer" invisible="1"/>
+                <field name="start_date" invisible="1"/>
                 <group>
                     <group>
                         <field name="date_from"/>
                         <field name="date_to"/>
                     </group>
                     <group>
-                        <field name="date_basis" widget="radio"/>
                         <field name="partner_ids" widget="many2many_tags"
                                placeholder="Todos los vendedores..."
                                invisible="not is_authorizer"/>
                     </group>
                 </group>
+                <div class="text-muted mb-2">
+                    El periodo se corta por <b>fecha de cobro</b> (el día en que entró el dinero del cliente).
+                    Comisiones vigentes desde el <field name="start_date" readonly="1" class="oe_inline"/>;
+                    lo cobrado antes ya está pagado y no se imprime.
+                </div>
                 <div class="alert alert-info" role="alert" invisible="is_authorizer">
-                    Solo verás tus propias comisiones. Puedes consultar cualquier periodo.
+                    Solo verás tus propias comisiones.
                 </div>
                 <footer>
                     <button name="action_print_report" string="Imprimir PDF" type="object"
