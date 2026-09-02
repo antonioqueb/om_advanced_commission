@@ -114,9 +114,11 @@ class CommissionMove(models.Model):
         ('amount_untaxed', 'Monto Base (Subtotal)'), ('amount_total', 'Monto Total (Inc. Impuestos)'),
         ('margin', 'Margen (Ganancia)'), ('gross_utility', 'Utilidad Bruta'), ('manual', 'Manual / Fijo')],
         string='Base', readonly=True)
-    rule_percent = fields.Float(string='% Regla', readonly=True)
+    # aggregator avg: en listas agrupadas Odoo suma todo numérico; un "865 %"
+    # en el pie de la columna % no significa nada.
+    rule_percent = fields.Float(string='% Regla', readonly=True, aggregator='avg')
     rule_fixed_amount = fields.Monetary(string='Fijo Regla', readonly=True)
-    retention_factor = fields.Float(string='Factor Aplicado', default=1.0, readonly=True,
+    retention_factor = fields.Float(string='Factor Aplicado', default=1.0, readonly=True, aggregator='avg',
                                     help='1.0 = sin retención. Menor a 1 = excedente retenido por autorización pendiente.')
 
     # ── Reversas (nunca se borra lo ya liquidado: se revierte) ─────────
@@ -404,7 +406,13 @@ class CommissionMove(models.Model):
         for move in self.filtered(lambda m: not m.origin_move_id and m.state != 'cancel'):
             so = move.sale_order_id
             family = move._commission_family()
-            paid = family.filtered(lambda m: m._commission_is_paid())
+            # Lo anterior al inicio de comisiones (pre_start) quedó "pagado
+            # fuera del sistema" solo como marca: si su cobro se desconcilia
+            # (casi siempre para corregir una factura y volver a aplicar),
+            # NO se descuenta nada: se elimina la marca y, al reconciliar de
+            # nuevo, vuelve a nacer cerrada. Una devolución real de dinero
+            # entra por nota de crédito + pago de salida (comisión negativa).
+            paid = family.filtered(lambda m: m._commission_is_paid() and not m.pre_start)
             unpaid = family - paid
             for m in unpaid:
                 if m.settlement_id:
@@ -855,10 +863,14 @@ class CommissionMove(models.Model):
             inv = sm.invoice_id or sm.invoice_line_id.move_id
             rk = resolved_role(move)
             amount = round(to_company(move, move.amount), 2)
-            calc_base = round(to_company(move, move.commission_base), 2)
-            base = round(to_company(move, move.base_amount_paid), 2)
-            gross = round(to_company(move, move.amount_paid_total), 2)
-            deducted = round(to_company(move, move.external_deducted), 2)
+            # Reversas y ajustes no traen base propia: se muestra la del
+            # movimiento original para que la fila se entienda (los KPIs no
+            # la suman: solo cuentan bases de originales).
+            src = move.origin_move_id if move.origin_move_id else move
+            calc_base = round(to_company(src, src.commission_base), 2)
+            base = round(to_company(src, src.base_amount_paid), 2)
+            gross = round(to_company(src, src.amount_paid_total), 2)
+            deducted = round(to_company(src, src.external_deducted), 2)
             pct = (abs(amount) / abs(calc_base) * 100.0) if calc_base else (
                 (abs(amount) / abs(base) * 100.0) if base else 0.0)
             if move.origin_move_id:

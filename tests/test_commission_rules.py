@@ -224,6 +224,14 @@ class TestCommissionRules(TransactionCase):
         self.assertEqual(m2.state, 'invoiced')
         self.assertTrue(m2.external_paid)
         self.assertTrue(m2.pre_start)
+        # Desconciliar ese cobro viejo (p. ej. para corregir la factura) NO
+        # genera reversa negativa: la marca se elimina y no se descuenta nada.
+        partial = self.env['account.partial.reconcile'].sudo().search(
+            ['|', ('debit_move_id', 'in', inv2.line_ids.ids), ('credit_move_id', 'in', inv2.line_ids.ids)])
+        self.assertTrue(partial)
+        partial.unlink()
+        left = self.env['commission.move'].sudo().search([('sale_order_id', '=', so2.id), ('state', '!=', 'cancel')])
+        self.assertFalse(left, 'sin reversa ni marca tras desconciliar un cobro anterior al inicio')
         # …y no aparece en el panel del mes del cobro.
         data = self.env['commission.move'].with_user(self.manager_user).get_commission_dashboard_data(month=old.strftime('%Y-%m'))
         self.assertNotIn(m2.id, [r['id'] for r in data['rows']])
