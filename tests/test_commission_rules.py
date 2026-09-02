@@ -66,12 +66,18 @@ class TestCommissionRules(TransactionCase):
                                   cls.env.ref('account.group_account_invoice').id])],
         })
 
-        cls.bank_journal = cls.env['account.journal'].search(
-            [('type', '=', 'bank'), ('company_id', '=', cls.company.id)], limit=1)
+        # Diario bancario con cuenta de pagos configurada (entrada y salida):
+        # sin ella el pago queda in_process SIN asiento y no hay conciliación.
+        journals = cls.env['account.journal'].search(
+            [('type', 'in', ('bank', 'cash')), ('company_id', '=', cls.company.id)])
+
+        def usable(j):
+            return (any(m.payment_account_id for m in j.inbound_payment_method_line_ids)
+                    and any(m.payment_account_id for m in j.outbound_payment_method_line_ids))
+
+        cls.bank_journal = journals.filtered(usable)[:1]
         if not cls.bank_journal:
-            cls.bank_journal = cls.env['account.journal'].create({
-                'name': 'Banco prueba comisiones', 'type': 'bank', 'code': 'BKCM',
-                'company_id': cls.company.id})
+            raise cls.skipTest(cls, 'Sin diario bancario con cuentas de pago configuradas')
 
     # ------------------------------------------------------------------
     # Helpers
