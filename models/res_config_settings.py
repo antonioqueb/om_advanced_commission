@@ -44,9 +44,12 @@ class ResConfigSettings(models.TransientModel):
         help='Tope de comisiones externas (embajador/constructora/referidor) como % del subtotal. 0 = sin tope.')
 
     # ── Inicio de comisiones (corte no retroactivo, por fecha de cobro) ──
+    # SIN config_parameter: res.config.settings solo admite boolean/integer/
+    # float/char/selection/many2one/datetime con config_parameter; un Date
+    # tumba TODA la pantalla de Ajustes ("Field ... must have type ...").
+    # Se lee/escribe a mano en get_values/set_values.
     commission_start_date = fields.Date(
         string='Inicio de comisiones',
-        config_parameter='om_advanced_commission.start_date',
         help='Solo comisionan los cobros recibidos a partir de esta fecha. Lo cobrado antes '
              'se considera pagado fuera del sistema: no aparece pendiente, en el panel ni en '
              'reportes, y no genera asientos.')
@@ -85,6 +88,7 @@ class ResConfigSettings(models.TransientModel):
         roles = self.env['sale.order']._commission_service_roles()
         for role, fname in self._SERVICE_FIELDS.items():
             res[fname] = role in roles
+        res['commission_start_date'] = self.env['commission.move']._commission_start_date()
         return res
 
     def set_values(self):
@@ -92,7 +96,11 @@ class ResConfigSettings(models.TransientModel):
         roles = [role for role in COMMISSION_ROLES if self[self._SERVICE_FIELDS[role]]]
         # Cadena vacía = nadie comisiona sobre servicios (set_param con False
         # borraría el parámetro y regresaría al default).
-        self.env['ir.config_parameter'].sudo().set_param(SERVICE_ROLES_PARAM, ','.join(roles) or ' ')
+        icp = self.env['ir.config_parameter'].sudo()
+        icp.set_param(SERVICE_ROLES_PARAM, ','.join(roles) or ' ')
+        if self.commission_start_date:
+            icp.set_param(self.env['commission.move'].START_DATE_PARAM,
+                          fields.Date.to_string(self.commission_start_date))
 
     def action_commission_apply_payments_now(self):
         """Aplica ahora todos los cobros con saldo sin aplicar."""
