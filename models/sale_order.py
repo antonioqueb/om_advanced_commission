@@ -79,7 +79,8 @@ class SaleOrder(models.Model):
     commission_paid_base = fields.Monetary(
         compute='_compute_commission_stats', string='Base Cobrada',
         currency_field='company_currency_id')
-    company_currency_id = fields.Many2one(related='company_id.currency_id')
+    company_currency_id = fields.Many2one(
+        related='company_id.currency_id', string='Moneda de la Compañía (Comisiones)')
 
     # ------------------------------------------------------------------
     # Vendedores internos: usuarios con permisos de ventas
