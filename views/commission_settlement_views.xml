@@ -42,7 +42,7 @@
                                 <list decoration-danger="amount &lt; 0">
                                     <field name="name"/>
                                     <field name="sale_order_id"/>
-                                    <field name="invoice_name"/>
+                                    <field name="invoice_name" string="Factura"/>
                                     <field name="date"/>
                                     <field name="rule_role"/>
                                     <field name="base_amount_paid" sum="Base"/>

@@ -18,7 +18,7 @@
                 <field name="sale_order_ref" optional="show"/>
                 <field name="project_id" optional="show"/>
                 <field name="customer_id" optional="show"/>
-                <field name="invoice_name" optional="show"/>
+                <field name="invoice_name" string="Factura" optional="show"/>
                 <field name="amount_paid_total" sum="Cobrado c/IVA" optional="show"/>
                 <field name="base_amount_paid" sum="Sin IVA" optional="show"/>
                 <field name="external_deducted" sum="Externos" optional="hide"/>

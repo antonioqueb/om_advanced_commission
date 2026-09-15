@@ -75,7 +75,7 @@ class CommissionAuditLine(models.TransientModel):
     audit_id = fields.Many2one('commission.audit', ondelete='cascade')
     partial_id = fields.Many2one('account.partial.reconcile', string='Conciliación')
     invoice_id = fields.Many2one('account.move', string='Factura')
-    invoice_name = fields.Char(string='Factura')
+    invoice_name = fields.Char(string='Folio de factura')
     order_id = fields.Many2one('sale.order', string='Orden')
     customer = fields.Char(string='Cliente')
     payment_date = fields.Date(string='Fecha Cobro')

@@ -20,7 +20,7 @@
                 <field name="line_ids" readonly="1">
                     <list decoration-warning="reason != ''">
                         <field name="payment_date"/>
-                        <field name="invoice_name"/>
+                        <field name="invoice_name" string="Factura"/>
                         <field name="customer"/>
                         <field name="order_id"/>
                         <field name="amount" sum="Total"/>

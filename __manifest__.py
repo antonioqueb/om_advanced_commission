@@ -1,6 +1,6 @@
 {
     'name': 'Gestión Avanzada de Comisiones (Cash Basis & Proyectos)',
-    'version': '19.0.6.1.4',
+    'version': '19.0.6.1.5',
     'category': 'Sales/Commissions',
     'summary': 'Motor de comisiones multi-agente sobre cobros: cálculo por línea de factura sin IVA, '
                'bienes vs servicios por rol, fecha de cobro única, inicio no retroactivo, '
