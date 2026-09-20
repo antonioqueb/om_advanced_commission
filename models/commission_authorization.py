@@ -89,8 +89,30 @@ class CommissionAuthorization(models.Model):
                 rec.activity_schedule('mail.mail_activity_data_todo', user_id=user.id,
                                       summary='Autorizar comisión', note=note)
 
-    def _close_activities(self):
-        self.activity_ids.filtered(lambda a: a.summary == 'Autorizar comisión').unlink()
+    def _close_activities(self, feedback='Atendida'):
+        """Cierra "Autorizar comisión" para TODOS los autorizadores (cada uno
+        recibió su propia actividad). La del usuario que decide se marca hecha
+        con mensaje en el chatter; las demás se archivan en silencio."""
+        for rec in self:
+            acts = rec.sudo().activity_ids.filtered(
+                lambda a: a.active and (a.summary or '') == 'Autorizar comisión')
+            if not acts:
+                continue
+            mine = acts.filtered(lambda a: a.user_id == self.env.user) or acts[:1]
+            try:
+                mine.action_feedback(feedback=feedback)
+            except Exception:
+                mine.unlink()
+            (acts - mine).filtered('active').write({'active': False, 'feedback': feedback})
+
+    def write(self, vals):
+        res = super().write(vals)
+        # Aprobar, rechazar (wizard) o regresar a borrador: todas las ramas
+        # pasan por aquí, así ninguna deja actividades colgadas.
+        labels = {'approved': 'Aprobada', 'rejected': 'Rechazada', 'draft': 'Regresada a borrador'}
+        if vals.get('state') in labels:
+            self._close_activities('%s por %s' % (labels[vals['state']], self.env.user.name))
+        return res
 
     def action_approve(self):
         if not self._is_authorizer():
