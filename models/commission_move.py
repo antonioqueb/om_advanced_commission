@@ -574,26 +574,44 @@ class CommissionMove(models.Model):
             self._commission_purge_unbacked()
         except Exception:  # noqa: BLE001
             _logger.exception('[COMM] depuración de comisiones sin cobro falló')
+        total_missing = 0
         for company in self.env['res.company'].search([]):
             missing = self.with_company(company)._commission_missing_partials(company=company)
             if missing:
                 missing._create_commission_moves()
                 missing = self.with_company(company)._commission_missing_partials(company=company)
-            if not missing:
+            total_missing += len(missing)
+        self._commission_audit_activity(total_missing)
+
+    @api.model
+    def _commission_audit_activity(self, total_missing):
+        """Aviso "Cobros sin comisión" a los administradores de comisiones.
+
+        No tiene documento: antes colgaba del CONTACTO del propio administrador,
+        que no tiene relación con el problema. Es una actividad libre (Odoo 19
+        lo permite) que este mismo cron cierra cuando ya no falta nada."""
+        Activity = self.env['mail.activity'].sudo()
+        summary = 'Cobros sin comisión'
+        open_acts = Activity.search([('summary', '=', summary), ('active', '=', True)])
+        if not total_missing:
+            if open_acts:
+                open_acts.write({'active': False, 'feedback': 'Ya no hay cobros sin comisión.'})
+            return
+        note = ('Hay %d cobro(s) de los últimos 90 días sin comisión generada. '
+                'Revísalos en Comisiones › Auditoría de Cobros.' % total_missing)
+        todo = self.env.ref('mail.mail_activity_data_todo', raise_if_not_found=False)
+        for user in self._commission_manager_users():
+            mine = open_acts.filtered(lambda a: a.user_id == user)
+            if mine:
+                mine.write({'note': note})
                 continue
-            note = ('Hay %d cobro(s) de los últimos 90 días sin comisión generada. '
-                    'Revísalos en Comisiones › Auditoría de Cobros.' % len(missing))
-            Activity = self.env['mail.activity'].sudo()
-            for user in self._commission_manager_users():
-                partner = user.partner_id
-                already = Activity.search_count([
-                    ('user_id', '=', user.id), ('summary', '=', 'Cobros sin comisión'),
-                    ('res_model', '=', 'res.partner'), ('res_id', '=', partner.id)])
-                if already:
-                    continue
-                partner.sudo().activity_schedule(
-                    'mail.mail_activity_data_todo', user_id=user.id,
-                    summary='Cobros sin comisión', note=note)
+            Activity.with_context(mail_activity_quick_update=True).create({
+                'activity_type_id': todo.id if todo else False,
+                'user_id': user.id,
+                'summary': summary,
+                'note': note,
+                'date_deadline': fields.Date.context_today(self),
+            })
 
     # ------------------------------------------------------------------
     # Dominio por periodo (un solo reloj, dos vistas explícitas)
